@@ -8,7 +8,7 @@
 #     if [ -d /workspace/studio ]; then
 #       git -C /workspace/studio pull --quiet
 #     else
-#       git clone https://github.com/TU_USER/runpod-ai-studio.git /workspace/studio
+#       git clone https://github.com/josewcabr/runpod-ai-studio.git /workspace/studio
 #     fi
 #     bash /workspace/studio/setup.sh
 #     sleep infinity
