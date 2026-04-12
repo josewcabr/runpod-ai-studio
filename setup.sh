@@ -51,14 +51,21 @@ log "GPU count: ${RUNPOD_GPU_COUNT:-1}"
 
 # ── 1. Paquetes del sistema (siempre, rápido) ─────────────────────
 section "Paquetes del sistema"
-apt-get update -qq 2>/dev/null
-apt-get install -y -qq \
-    git wget curl tmux screen vim bc \
-    python3-venv python3-tk \
-    libgl1 libglib2.0-0 libsm6 libxext6 libxrender-dev \
-    libgoogle-perftools4 libtcmalloc-minimal4 \
-    libnccl2 libnccl-dev \
-    build-essential 2>/dev/null || true
+apt-get update -y 2>&1 | tail -1
+
+# Instalar en grupos — si un paquete falla el resto sigue
+apt-get install -y git wget curl tmux screen vim bc || true
+apt-get install -y python3-venv python3-tk || true
+apt-get install -y libgl1 libglib2.0-0 libsm6 libxext6 libxrender-dev || true
+apt-get install -y libgoogle-perftools4 libtcmalloc-minimal4 || true
+apt-get install -y libnccl2 libnccl-dev || true
+apt-get install -y build-essential || true
+
+# Verificar que tmux está instalado — es crítico para lanzar servicios
+if ! command -v tmux &>/dev/null; then
+    log "⚠ tmux no encontrado, reintentando..."
+    apt-get install -y tmux
+fi
 
 # Dependencias del panel (van al Python del sistema)
 pip install --upgrade pip 2>/dev/null
