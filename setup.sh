@@ -103,6 +103,10 @@ if ! is_done "$WORKSPACE/kohya_ss"; then
 
     # Setup oficial de kohya (gestiona su propio entorno)
     chmod +x ./setup.sh
+
+    # Asegurar python3-tk antes de que el setup de Kohya lo compruebe
+    apt-get install -y python3-tk 2>/dev/null || true
+
     ./setup.sh -n -p -r -s -u
 
     # Fixes conocidos para runpod/pytorch:2.2.0-cu121
