@@ -1,7 +1,7 @@
 #!/bin/bash
 # =================================================================
 # RunPod AI Studio — setup.sh
-# Base image: runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04
+# Base image: runpod/pytorch:2.2.0-py3.10-cuda12.1.1-devel-ubuntu22.04
 #
 # Start Command del template RunPod:
 #   bash -c "
@@ -57,7 +57,7 @@ apt-get install -y -qq \
     python3-venv python3-tk \
     libgl1 libglib2.0-0 libsm6 libxext6 libxrender-dev \
     libgoogle-perftools4 libtcmalloc-minimal4 \
-    cudnn-cuda-12 \
+    libcudnn8 cudnn-cuda-12 \
     libnccl2 libnccl-dev \
     build-essential 2>/dev/null || true
 
@@ -105,14 +105,14 @@ if ! is_done "$WORKSPACE/kohya_ss"; then
     chmod +x ./setup.sh
     ./setup.sh -n -p -r -s -u
 
-    # Fixes conocidos para runpod/pytorch:2.4.0-cu124
+    # Fixes conocidos para runpod/pytorch:2.2.0-cu121
     log "Aplicando fixes de bitsandbytes y xformers..."
     pip uninstall bitsandbytes -y 2>/dev/null || true
     pip install bitsandbytes --upgrade -q
     pip install -q \
-        xformers==0.0.28.post2 \
-        torchaudio==2.5.0+cu124 \
-        --index-url https://download.pytorch.org/whl/cu124
+        xformers==0.0.27.post2 \
+        torchaudio==2.2.0+cu121 \
+        --index-url https://download.pytorch.org/whl/cu121
 
     mark_done "$WORKSPACE/kohya_ss"
     log "✅ Kohya_ss instalado"
