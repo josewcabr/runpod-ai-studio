@@ -57,7 +57,6 @@ apt-get install -y -qq \
     python3-venv python3-tk \
     libgl1 libglib2.0-0 libsm6 libxext6 libxrender-dev \
     libgoogle-perftools4 libtcmalloc-minimal4 \
-    libcudnn8 cudnn-cuda-12 \
     libnccl2 libnccl-dev \
     build-essential 2>/dev/null || true
 
