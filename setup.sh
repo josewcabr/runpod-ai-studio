@@ -33,6 +33,7 @@ WORKSPACE="/workspace"
 REPO_DIR="$WORKSPACE/studio"
 MODELS_DIR="$WORKSPACE/models"
 LOGS_DIR="$WORKSPACE/logs"
+CUDA_ENV_FILE="/root/.studio_cuda_env"
 
 # ── Helpers ───────────────────────────────────────────────────────
 mkdir -p "$LOGS_DIR"
@@ -69,7 +70,9 @@ fi
 
 # Dependencias del panel (van al Python del sistema)
 pip install --upgrade pip 2>/dev/null
-pip install flask requests psutil --ignore-installed 2>&1 | tee -a "$LOG_FILE" || true
+if ! pip install flask requests psutil --ignore-installed 2>&1 | tee -a "$LOG_FILE"; then
+    log "⚠  ADVERTENCIA: pip install panel deps falló — el panel puede no arrancar"
+fi
 log "✅ Paquetes listos"
 
 # ── 2. Configuración de Accelerate ───────────────────────────────
@@ -81,7 +84,8 @@ GPU_COUNT="${RUNPOD_GPU_COUNT:-1}"
 if (( GPU_COUNT > 1 )); then
     log "Multi-GPU detectado ($GPU_COUNT GPUs)"
     cp "$REPO_DIR/configs/accelerate/multi_gpu.yaml" "$ACCEL_DIR/default_config.yaml"
-    sed -i "s/num_processes: 4/num_processes: $GPU_COUNT/g" "$ACCEL_DIR/default_config.yaml"
+    # Regex robusta: reemplaza cualquier número en num_processes
+    sed -i "s/num_processes: [0-9]*/num_processes: $GPU_COUNT/g" "$ACCEL_DIR/default_config.yaml"
 else
     log "Single GPU"
     cp "$REPO_DIR/configs/accelerate/single_gpu.yaml" "$ACCEL_DIR/default_config.yaml"
@@ -90,23 +94,31 @@ log "✅ Accelerate configurado"
 
 # ── 3. Kohya_ss ──────────────────────────────────────────────────
 section "Kohya_ss"
-cd "$WORKSPACE"
+cd "$WORKSPACE" || { log "FATAL: No se puede acceder a $WORKSPACE"; exit 1; }
 
 if [ ! -d "kohya_ss" ]; then
     git clone --recursive https://github.com/bmaltais/kohya_ss.git
 fi
-cd kohya_ss
+cd kohya_ss || { log "FATAL: No se puede acceder a kohya_ss"; exit 1; }
 git checkout master 2>/dev/null || true
-git pull --recurse-submodules 2>/dev/null || true
+git pull --recurse-submodules 2>&1 | tee -a "$LOG_FILE" || \
+    log "⚠  git pull kohya_ss falló (continuando con versión actual)"
 
 if ! is_done "$WORKSPACE/kohya_ss"; then
     log "Instalando dependencias de Kohya..."
 
     # Fix de rutas CUDNN/TensorRT (necesario en runpod/pytorch)
-    CUDNN_PATH=$(python -c "import nvidia.cudnn, os; print(os.path.dirname(nvidia.cudnn.__file__))" 2>/dev/null || echo "")
-    TENSORRT_PATH=$(python -c "import tensorrt_libs, os; print(os.path.dirname(tensorrt_libs.__file__))" 2>/dev/null || echo "")
+    CUDNN_PATH=$(python3 -c "import nvidia.cudnn, os; print(os.path.dirname(nvidia.cudnn.__file__))" 2>/dev/null || echo "")
+    TENSORRT_PATH=$(python3 -c "import tensorrt_libs, os; print(os.path.dirname(tensorrt_libs.__file__))" 2>/dev/null || echo "")
     [ -n "$CUDNN_PATH" ]    && export LD_LIBRARY_PATH="$CUDNN_PATH/lib:${LD_LIBRARY_PATH:-}"
     [ -n "$TENSORRT_PATH" ] && export LD_LIBRARY_PATH="$TENSORRT_PATH:${LD_LIBRARY_PATH:-}"
+
+    # Persistir LD_LIBRARY_PATH para que las sesiones tmux lo hereden
+    {
+        echo "# Generado por setup.sh — rutas CUDA para Kohya/ComfyUI"
+        [ -n "$CUDNN_PATH" ]    && echo "export LD_LIBRARY_PATH=\"$CUDNN_PATH/lib:\${LD_LIBRARY_PATH:-}\""
+        [ -n "$TENSORRT_PATH" ] && echo "export LD_LIBRARY_PATH=\"$TENSORRT_PATH:\${LD_LIBRARY_PATH:-}\""
+    } > "$CUDA_ENV_FILE"
 
     # Setup oficial de kohya (gestiona su propio entorno)
     chmod +x ./setup.sh
@@ -116,6 +128,15 @@ if ! is_done "$WORKSPACE/kohya_ss"; then
 
     ./setup.sh -n -p -r -s -u
 
+    # Activar el venv de Kohya para los pip installs post-setup
+    KOHYA_VENV="$WORKSPACE/kohya_ss/venv"
+    if [ -f "$KOHYA_VENV/bin/activate" ]; then
+        # shellcheck disable=SC1091
+        source "$KOHYA_VENV/bin/activate"
+        log "Venv de Kohya activado: $KOHYA_VENV"
+    else
+        log "⚠  No se encontró el venv de Kohya en $KOHYA_VENV — pip apuntará al sistema"
+    fi
 
     # Kohya instala torch 2.5.0+cu124 y xformers 0.0.28.post2 por su cuenta.
     # Solo aseguramos torchaudio compatible y bitsandbytes actualizado.
@@ -126,6 +147,8 @@ if ! is_done "$WORKSPACE/kohya_ss"; then
         torchaudio==2.5.0+cu124 \
         --index-url https://download.pytorch.org/whl/cu124
 
+    deactivate 2>/dev/null || true
+
     mark_done "$WORKSPACE/kohya_ss"
     log "✅ Kohya_ss instalado"
 else
@@ -134,20 +157,21 @@ fi
 
 # ── 4. ComfyUI ───────────────────────────────────────────────────
 section "ComfyUI"
-cd "$WORKSPACE"
+cd "$WORKSPACE" || { log "FATAL: No se puede acceder a $WORKSPACE"; exit 1; }
 
 if [ ! -d "ComfyUI" ]; then
     git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git
 fi
 
 if ! is_done "$WORKSPACE/ComfyUI"; then
-    cd ComfyUI
+    cd ComfyUI || { log "FATAL: No se puede acceder a ComfyUI"; exit 1; }
     log "Instalando dependencias de ComfyUI..."
     pip install -q -r requirements.txt
 
     # ComfyUI Manager
-    cd custom_nodes
-    git clone --depth 1 https://github.com/ltdrdata/ComfyUI-Manager.git 2>/dev/null || true
+    cd custom_nodes || { log "FATAL: No se puede acceder a ComfyUI/custom_nodes"; exit 1; }
+    git clone --depth 1 https://github.com/ltdrdata/ComfyUI-Manager.git 2>/dev/null || \
+        log "⚠  ComfyUI-Manager no se pudo clonar, continuando sin él"
     [ -f ComfyUI-Manager/requirements.txt ] && pip install -q -r ComfyUI-Manager/requirements.txt
 
     mark_done "$WORKSPACE/ComfyUI"
@@ -158,7 +182,7 @@ fi
 
 # ── 5. Automatic1111 ─────────────────────────────────────────────
 section "Automatic1111"
-cd "$WORKSPACE"
+cd "$WORKSPACE" || { log "FATAL: No se puede acceder a $WORKSPACE"; exit 1; }
 
 if [ ! -d "stable-diffusion-webui" ]; then
     git clone --depth 1 https://github.com/AUTOMATIC1111/stable-diffusion-webui.git
@@ -169,7 +193,7 @@ fi
 
 # ── 6. Forge ─────────────────────────────────────────────────────
 section "Forge"
-cd "$WORKSPACE"
+cd "$WORKSPACE" || { log "FATAL: No se puede acceder a $WORKSPACE"; exit 1; }
 
 if [ ! -d "stable-diffusion-webui-forge" ]; then
     git clone --depth 1 https://github.com/lllyasviel/stable-diffusion-webui-forge.git
@@ -185,6 +209,7 @@ mkdir -p "$WORKSPACE/training"/{images,output,config}
 
 # ComfyUI
 COMFY_M="$WORKSPACE/ComfyUI/models"
+mkdir -p "$COMFY_M"
 declare -A COMFY_MAP=(
     ["checkpoints"]="checkpoints"
     ["loras"]="loras"
@@ -230,10 +255,13 @@ tmux kill-server 2>/dev/null || true
 sleep 1
 tmux new-session -d -s studio -x 220 -y 50
 
+# Prefijo común: cargar vars CUDA si existen
+CUDA_SOURCE="[ -f $CUDA_ENV_FILE ] && source $CUDA_ENV_FILE; "
+
 # ── Panel de control (:3000) — siempre activo
 tmux rename-window -t studio:0 'panel'
 tmux send-keys -t studio:panel \
-    "cd $REPO_DIR/panel && python app.py 2>&1 | tee $LOGS_DIR/panel.log" Enter
+    "${CUDA_SOURCE}cd $REPO_DIR/panel && python3 app.py 2>&1 | tee $LOGS_DIR/panel.log" Enter
 
 # ── Jupyter Lab (:8888) — siempre activo
 #    Sin token ni contraseña: el proxy de RunPod ya protege el acceso.
@@ -254,7 +282,7 @@ tmux send-keys -t studio:jupyter \
 # ── ComfyUI (:8188) — siempre activo
 tmux new-window -t studio -n 'comfyui'
 tmux send-keys -t studio:comfyui \
-    "cd $WORKSPACE/ComfyUI && python main.py \
+    "${CUDA_SOURCE}cd $WORKSPACE/ComfyUI && python main.py \
         --listen 0.0.0.0 \
         --port 8188 \
         --enable-cors-header \

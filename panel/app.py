@@ -9,6 +9,7 @@ import threading
 import subprocess
 import uuid
 import time
+from collections import deque
 from pathlib import Path
 from flask import Flask, jsonify, request, send_from_directory
 
@@ -79,8 +80,12 @@ SERVICES = {
 TENSORBOARD_CMD = 'tensorboard --logdir=/workspace/logs --port=6006 --host=0.0.0.0'
 
 # Runtime: handles de procesos en memoria
-_procs  = {}  # service_id → Popen
-_tb_proc = None
+_procs       = {}    # service_id → Popen
+_tb_proc     = None
+_log_handles = {}    # sid → file handle abierto
+
+_state_lock = threading.Lock()   # protege _procs, _tb_proc y _log_handles
+_dl_lock    = threading.Lock()   # protege DOWNLOADS
 
 # ── PID helpers ───────────────────────────────────────────────────
 def _pid_file(sid: str) -> Path:
@@ -108,6 +113,17 @@ def _pid_alive(pid: int) -> bool:
     except OSError:
         return False
 
+def _is_zombie(pid: int) -> bool:
+    """Devuelve True si el proceso está en estado zombie (Z)."""
+    try:
+        status = Path(f'/proc/{pid}/status').read_text()
+        for line in status.splitlines():
+            if line.startswith('State:'):
+                return line.split()[1] == 'Z'
+        return False
+    except Exception:
+        return False
+
 def _kill(pid: int, timeout: float = 6.0):
     """Termina el process group del PID dado."""
     try:
@@ -119,26 +135,37 @@ def _kill(pid: int, timeout: float = 6.0):
                 return
             time.sleep(0.2)
         os.killpg(pgid, signal.SIGKILL)
-    except Exception:
-        pass
+    except ProcessLookupError:
+        pass  # El proceso ya terminó — esperado
+    except Exception as e:
+        print(f'[_kill] advertencia pid={pid}: {e}')
 
 # ── Estado de servicio ────────────────────────────────────────────
 def _status(sid: str) -> str:
     """'running' | 'stopped'"""
-    proc = _procs.get(sid)
-    if proc and proc.poll() is None:
-        return 'running'
+    with _state_lock:
+        proc = _procs.get(sid)
+    if proc:
+        if proc.poll() is None:
+            if _is_zombie(proc.pid):
+                proc.wait()
+                return 'stopped'
+            return 'running'
     pid = _read_pid(sid)
-    if pid and _pid_alive(pid):
+    if pid and _pid_alive(pid) and not _is_zombie(pid):
         return 'running'
     return 'stopped'
 
 def _tb_status() -> str:
-    global _tb_proc
-    if _tb_proc and _tb_proc.poll() is None:
+    with _state_lock:
+        tb = _tb_proc
+    if tb and tb.poll() is None:
+        if _is_zombie(tb.pid):
+            tb.wait()
+            return 'stopped'
         return 'running'
     pid = _read_pid('tensorboard')
-    if pid and _pid_alive(pid):
+    if pid and _pid_alive(pid) and not _is_zombie(pid):
         return 'running'
     return 'stopped'
 
@@ -164,29 +191,41 @@ def _start(sid: str):
         preexec_fn=os.setsid,
         text=True,
     )
-    _procs[sid] = proc
+    with _state_lock:
+        _procs[sid]       = proc
+        _log_handles[sid] = log_fh
     _write_pid(sid, proc.pid)
 
     # TensorBoard se arranca junto con Kohya
     if svc.get('tensorboard'):
         time.sleep(2)
-        tb_log = open(LOGS_DIR / 'tensorboard.log', 'a', buffering=1)
-        _tb_proc = subprocess.Popen(
+        tb_log  = open(LOGS_DIR / 'tensorboard.log', 'a', buffering=1)
+        tb_proc = subprocess.Popen(
             ['bash', '-c', TENSORBOARD_CMD],
             stdout=tb_log,
             stderr=subprocess.STDOUT,
             preexec_fn=os.setsid,
             text=True,
         )
-        _write_pid('tensorboard', _tb_proc.pid)
+        with _state_lock:
+            _tb_proc                    = tb_proc
+            _log_handles['tensorboard'] = tb_log
+        _write_pid('tensorboard', tb_proc.pid)
 
 def _stop(sid: str):
     global _tb_proc
 
-    # Matar via handle en memoria
-    proc = _procs.pop(sid, None)
+    with _state_lock:
+        proc = _procs.pop(sid, None)
+        fh   = _log_handles.pop(sid, None)
+
     if proc and proc.poll() is None:
         _kill(proc.pid)
+    if fh:
+        try:
+            fh.close()
+        except Exception:
+            pass
 
     # Matar via PID file (sobrevive a reinicios del panel)
     pid = _read_pid(sid)
@@ -196,9 +235,17 @@ def _stop(sid: str):
 
     # TensorBoard sigue al estado de Kohya
     if SERVICES[sid].get('tensorboard'):
-        if _tb_proc and _tb_proc.poll() is None:
-            _kill(_tb_proc.pid)
-        _tb_proc = None
+        with _state_lock:
+            tb       = _tb_proc
+            _tb_proc = None
+            tb_fh    = _log_handles.pop('tensorboard', None)
+        if tb and tb.poll() is None:
+            _kill(tb.pid)
+        if tb_fh:
+            try:
+                tb_fh.close()
+            except Exception:
+                pass
         tb_pid = _read_pid('tensorboard')
         if tb_pid:
             _kill(tb_pid)
@@ -219,6 +266,8 @@ CATEGORY_MAP = {
     'VAE':              'vae',
     'Hypernetwork':     'hypernetworks',
 }
+
+VALID_CATEGORIES = set(CATEGORY_MAP.values())
 
 def _human(n: int) -> str:
     for u in ('B', 'KB', 'MB', 'GB'):
@@ -262,18 +311,19 @@ def _download_worker(job_id: str, url: str, dest: Path, headers: dict):
 
 def _new_job(source: str, filename: str, category: str) -> str:
     job_id = str(uuid.uuid4())[:8]
-    DOWNLOADS[job_id] = {
-        'source':         source,
-        'filename':       filename,
-        'category':       category,
-        'status':         'queued',
-        'progress':       0,
-        'downloaded':     0,
-        'downloaded_str': '0 B',
-        'total':          0,
-        'total_str':      '?',
-        'error':          None,
-    }
+    with _dl_lock:
+        DOWNLOADS[job_id] = {
+            'source':         source,
+            'filename':       filename,
+            'category':       category,
+            'status':         'queued',
+            'progress':       0,
+            'downloaded':     0,
+            'downloaded_str': '0 B',
+            'total':          0,
+            'total_str':      '?',
+            'error':          None,
+        }
     return job_id
 
 # ── Sistema ───────────────────────────────────────────────────────
@@ -302,11 +352,15 @@ def _system_info() -> dict:
     except Exception:
         pass
 
-    st = os.statvfs('/workspace')
-    disk = {
-        'total_gb': round(st.f_blocks * st.f_frsize / 1e9, 1),
-        'free_gb':  round(st.f_bavail * st.f_frsize / 1e9, 1),
-    }
+    try:
+        st = os.statvfs('/workspace')
+        disk = {
+            'total_gb': round(st.f_blocks * st.f_frsize / 1e9, 1),
+            'free_gb':  round(st.f_bavail * st.f_frsize / 1e9, 1),
+        }
+    except OSError:
+        disk = {'total_gb': 0, 'free_gb': 0}
+
     return {'gpu': gpu, 'disk': disk}
 
 # ═══════════════════════════════════════════════════════════════════
@@ -331,6 +385,8 @@ def api_status():
         }
         for sid, svc in SERVICES.items()
     }
+    with _dl_lock:
+        active_dl = sum(1 for d in DOWNLOADS.values() if d['status'] == 'downloading')
     return jsonify({
         **sys,
         'services':        services,
@@ -339,7 +395,7 @@ def api_status():
             'HF_TOKEN':      bool(os.environ.get('HF_TOKEN')),
             'CIVITAI_TOKEN': bool(os.environ.get('CIVITAI_TOKEN')),
         },
-        'active_downloads': sum(1 for d in DOWNLOADS.values() if d['status'] == 'downloading'),
+        'active_downloads': active_dl,
     })
 
 # ── Servicios ─────────────────────────────────────────────────────
@@ -377,10 +433,11 @@ def api_log(sid):
         return jsonify({'error': 'Servicio desconocido'}), 404
     log_name = SERVICES[sid]['log'] if sid in SERVICES else f'{sid}.log'
     log_path = LOGS_DIR / log_name
+    n = min(int(request.args.get('lines', 150)), 500)
     try:
-        lines = log_path.read_text(errors='replace').splitlines()
-        n = min(int(request.args.get('lines', 150)), 500)
-        return jsonify({'lines': lines[-n:], 'total': len(lines)})
+        with open(log_path, errors='replace') as f:
+            lines = [line.rstrip('\n') for line in deque(f, maxlen=n)]
+        return jsonify({'lines': lines, 'total': len(lines)})
     except FileNotFoundError:
         return jsonify({'lines': [], 'total': 0})
 
@@ -560,16 +617,21 @@ def api_hf_download():
 # ── Descargas ─────────────────────────────────────────────────────
 @app.route('/api/downloads')
 def api_downloads():
-    return jsonify(DOWNLOADS)
+    with _dl_lock:
+        snapshot = dict(DOWNLOADS)
+    return jsonify(snapshot)
 
 @app.route('/api/downloads/<job_id>', methods=['DELETE'])
 def api_downloads_delete(job_id):
-    DOWNLOADS.pop(job_id, None)
+    with _dl_lock:
+        DOWNLOADS.pop(job_id, None)
     return jsonify({'ok': True})
 
 # ── Modelos instalados ────────────────────────────────────────────
 @app.route('/api/models')
 def api_models():
+    if not MODELS_DIR.exists():
+        return jsonify({})
     result = {}
     for cat_dir in sorted(MODELS_DIR.iterdir()):
         if not cat_dir.is_dir():
@@ -589,6 +651,9 @@ def api_models_delete():
     filename = data.get('filename', '')
     if not category or not filename:
         return jsonify({'error': 'category y filename requeridos'}), 400
+
+    if category not in VALID_CATEGORIES:
+        return jsonify({'error': 'Categoría no válida'}), 400
 
     path = (MODELS_DIR / category / filename).resolve()
     # Seguridad: impedir path traversal
