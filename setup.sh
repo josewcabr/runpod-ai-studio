@@ -109,14 +109,15 @@ if ! is_done "$WORKSPACE/kohya_ss"; then
 
     ./setup.sh -n -p -r -s -u
 
-    # Fixes conocidos para runpod/pytorch:2.2.0-cu121
-    log "Aplicando fixes de bitsandbytes y xformers..."
+
+    # Kohya instala torch 2.5.0+cu124 y xformers 0.0.28.post2 por su cuenta.
+    # Solo aseguramos torchaudio compatible y bitsandbytes actualizado.
+    log "Aplicando fixes de bitsandbytes y torchaudio..."
     pip uninstall bitsandbytes -y 2>/dev/null || true
     pip install bitsandbytes --upgrade -q
     pip install -q \
-        xformers==0.0.27.post2 \
-        torchaudio==2.2.0+cu121 \
-        --index-url https://download.pytorch.org/whl/cu121
+        torchaudio==2.5.0+cu124 \
+        --index-url https://download.pytorch.org/whl/cu124
 
     mark_done "$WORKSPACE/kohya_ss"
     log "✅ Kohya_ss instalado"
