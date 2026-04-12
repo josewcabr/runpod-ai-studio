@@ -61,7 +61,8 @@ apt-get install -y -qq \
     build-essential 2>/dev/null || true
 
 # Dependencias del panel (van al Python del sistema)
-pip install -q flask requests psutil 2>/dev/null
+pip install --upgrade pip 2>/dev/null
+pip install flask requests psutil --ignore-installed 2>&1 | tee -a "$LOG_FILE" || true
 log "✅ Paquetes listos"
 
 # ── 2. Configuración de Accelerate ───────────────────────────────
