@@ -68,8 +68,11 @@ if ! command -v tmux &>/dev/null; then
     apt-get install -y tmux
 fi
 
+# Asegurar setuptools/wheel en sistema — necesario para el bootstrap de A1111/Forge
+# (pkg_resources viene de setuptools; sin él A1111 falla al instalar CLIP)
+pip install --upgrade pip setuptools wheel -q 2>/dev/null || true
+
 # Dependencias del panel (van al Python del sistema)
-pip install --upgrade pip 2>/dev/null
 if ! pip install flask requests psutil --ignore-installed 2>&1 | tee -a "$LOG_FILE"; then
     log "⚠  ADVERTENCIA: pip install panel deps falló — el panel puede no arrancar"
 fi
@@ -165,6 +168,14 @@ fi
 
 if ! is_done "$WORKSPACE/ComfyUI"; then
     cd ComfyUI || { log "FATAL: No se puede acceder a ComfyUI"; exit 1; }
+
+    # Crear venv propio para aislar torch de ComfyUI del sistema base
+    log "Creando venv de ComfyUI..."
+    python3 -m venv venv
+    # shellcheck disable=SC1091
+    source venv/bin/activate
+    pip install --upgrade pip wheel -q
+
     log "Instalando dependencias de ComfyUI..."
     pip install -q -r requirements.txt
 
@@ -173,6 +184,7 @@ if ! is_done "$WORKSPACE/ComfyUI"; then
     git clone --depth 1 https://github.com/ltdrdata/ComfyUI-Manager.git 2>/dev/null || \
         log "⚠  ComfyUI-Manager no se pudo clonar, continuando sin él"
     [ -f ComfyUI-Manager/requirements.txt ] && pip install -q -r ComfyUI-Manager/requirements.txt
+    deactivate
 
     mark_done "$WORKSPACE/ComfyUI"
     log "✅ ComfyUI + Manager instalados"
@@ -280,13 +292,15 @@ tmux send-keys -t studio:jupyter \
         2>&1 | tee $LOGS_DIR/jupyter.log" Enter
 
 # ── ComfyUI (:8188) — siempre activo
+# Lanza en background dentro de la ventana tmux y escribe el PID para que
+# el panel pueda detectar y gestionar este proceso (stop/restart).
+mkdir -p "$LOGS_DIR/pids"
 tmux new-window -t studio -n 'comfyui'
 tmux send-keys -t studio:comfyui \
-    "${CUDA_SOURCE}cd $WORKSPACE/ComfyUI && python main.py \
-        --listen 0.0.0.0 \
-        --port 8188 \
-        --enable-cors-header \
-        2>&1 | tee $LOGS_DIR/comfyui.log" Enter
+    "${CUDA_SOURCE}source $WORKSPACE/ComfyUI/venv/bin/activate && \
+cd $WORKSPACE/ComfyUI && \
+python main.py --listen 0.0.0.0 --port 8188 --enable-cors-header \
+>> $LOGS_DIR/comfyui.log 2>&1 & echo \$! > $LOGS_DIR/pids/comfyui.pid; wait" Enter
 
 # A1111, Forge y Kohya se lanzan desde el panel (slot exclusivo :7860)
 

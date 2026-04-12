@@ -32,11 +32,13 @@ SERVICES = {
         'group': 'exclusive',
         'port': 7860,
         'cmd': (
+            'source /root/.studio_cuda_env 2>/dev/null || true; '
             'cd /workspace/stable-diffusion-webui && '
-            'python launch.py '
+            'python3 launch.py '
             '--listen --port 7860 '
             '--api --enable-insecure-extension-access '
-            '--cors-allow-origins=* --no-half-vae'
+            '--cors-allow-origins=* --no-half-vae '
+            '--skip-torch-cuda-test'
         ),
         'log': 'a1111.log',
     },
@@ -45,11 +47,13 @@ SERVICES = {
         'group': 'exclusive',
         'port': 7860,
         'cmd': (
+            'source /root/.studio_cuda_env 2>/dev/null || true; '
             'cd /workspace/stable-diffusion-webui-forge && '
-            'python launch.py '
+            'python3 launch.py '
             '--listen --port 7860 '
             '--api --enable-insecure-extension-access '
-            '--cors-allow-origins=*'
+            '--cors-allow-origins=* '
+            '--skip-torch-cuda-test'
         ),
         'log': 'forge.log',
     },
@@ -58,6 +62,7 @@ SERVICES = {
         'group': 'exclusive',
         'port': 7860,
         'cmd': (
+            'source /root/.studio_cuda_env 2>/dev/null || true; '
             'cd /workspace/kohya_ss && '
             './gui.sh --server_port 7860 --listen=0.0.0.0 --headless'
         ),
@@ -69,6 +74,8 @@ SERVICES = {
         'group': 'independent',
         'port': 8188,
         'cmd': (
+            'source /root/.studio_cuda_env 2>/dev/null || true; '
+            'source /workspace/ComfyUI/venv/bin/activate && '
             'cd /workspace/ComfyUI && '
             'python main.py '
             '--listen 0.0.0.0 --port 8188 --enable-cors-header'
