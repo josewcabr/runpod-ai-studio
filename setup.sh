@@ -166,14 +166,26 @@ if [ ! -d "ComfyUI" ]; then
     git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git
 fi
 
-if ! is_done "$WORKSPACE/ComfyUI"; then
+if ! is_done "$WORKSPACE/ComfyUI" || [ ! -d "$WORKSPACE/ComfyUI/venv" ]; then
     cd ComfyUI || { log "FATAL: No se puede acceder a ComfyUI"; exit 1; }
 
-    # La imagen runpod/pytorch ya tiene torch+CUDA instalados en el sistema.
-    # Crear un venv instala un torch diferente (más nuevo) que puede ser
-    # incompatible con el driver CUDA del pod → CUDA no disponible.
-    # Usamos el Python del sistema directamente.
-    log "Instalando dependencias de ComfyUI (Python sistema)..."
+    # Crear venv propio: necesario para instalar torch cu130 compatible con
+    # el driver CUDA 13.0 del pod (la imagen base trae cu121 que da CUDA not available)
+    log "Creando venv de ComfyUI..."
+    python3 -m venv venv
+    # shellcheck disable=SC1091
+    source venv/bin/activate
+    pip install --upgrade pip wheel -q
+
+    # Instalar torch cu130 ANTES que requirements.txt para que no lo sobreescriba
+    log "Instalando PyTorch cu130 para ComfyUI..."
+    pip install -q \
+        torch==2.11.0+cu130 \
+        torchvision==0.26.0+cu130 \
+        torchaudio==2.11.0+cu130 \
+        --index-url https://download.pytorch.org/whl/cu130
+
+    log "Instalando dependencias de ComfyUI..."
     pip install -q -r requirements.txt
 
     # ComfyUI Manager
@@ -181,6 +193,7 @@ if ! is_done "$WORKSPACE/ComfyUI"; then
     git clone --depth 1 https://github.com/ltdrdata/ComfyUI-Manager.git 2>/dev/null || \
         log "⚠  ComfyUI-Manager no se pudo clonar, continuando sin él"
     [ -f ComfyUI-Manager/requirements.txt ] && pip install -q -r ComfyUI-Manager/requirements.txt
+    deactivate
 
     mark_done "$WORKSPACE/ComfyUI"
     log "✅ ComfyUI + Manager instalados"
