@@ -16,7 +16,7 @@
 #
 # Puertos a exponer en RunPod:
 #   3000 → Control Panel   (siempre activo)
-#   7860 → A1111/Forge/Kohya (slot exclusivo, lanzar desde el panel)
+#   7860 → Forge/Kohya (slot exclusivo, lanzar desde el panel)
 #   8188 → ComfyUI         (siempre activo)
 #   8888 → Jupyter Lab     (siempre activo)
 #   6006 → TensorBoard     (auto al lanzar Kohya)
@@ -68,8 +68,8 @@ if ! command -v tmux &>/dev/null; then
     apt-get install -y tmux
 fi
 
-# Asegurar setuptools/wheel en sistema — necesario para el bootstrap de A1111/Forge
-# (pkg_resources viene de setuptools; sin él A1111 falla al instalar CLIP)
+# Asegurar setuptools/wheel en sistema — necesario para el bootstrap de Forge
+# (pkg_resources viene de setuptools)
 pip install --upgrade pip setuptools wheel -q 2>/dev/null || true
 
 # Dependencias del panel (van al Python del sistema)
@@ -203,18 +203,9 @@ else
     log "⏭  Ya instalado"
 fi
 
-# ── 5. Automatic1111 ─────────────────────────────────────────────
-section "Automatic1111"
-cd "$WORKSPACE" || { log "FATAL: No se puede acceder a $WORKSPACE"; exit 1; }
 
-if [ ! -d "stable-diffusion-webui" ]; then
-    git clone --depth 1 https://github.com/AUTOMATIC1111/stable-diffusion-webui.git
-    log "✅ Clonado (se auto-instala en el primer arranque)"
-else
-    log "⏭  Ya clonado"
-fi
 
-# ── 6. Forge ─────────────────────────────────────────────────────
+# ── 5. Forge ─────────────────────────────────────────────────────
 section "Forge"
 cd "$WORKSPACE" || { log "FATAL: No se puede acceder a $WORKSPACE"; exit 1; }
 
@@ -225,7 +216,7 @@ else
     log "⏭  Ya clonado"
 fi
 
-# ── 7. Estructura de modelos y symlinks ───────────────────────────
+# ── 6. Estructura de modelos y symlinks ───────────────────────────
 section "Modelos y symlinks"
 mkdir -p "$MODELS_DIR"/{checkpoints,loras,vae,clip,unet,controlnet,embeddings,upscalers,hypernetworks}
 mkdir -p "$WORKSPACE/training"/{images,output,config}
@@ -248,7 +239,7 @@ for dst in "${!COMFY_MAP[@]}"; do
     ln -sfn "$MODELS_DIR/${COMFY_MAP[$dst]}" "$COMFY_M/$dst"
 done
 
-# A1111 y Forge (misma estructura de carpetas entre sí)
+# Forge
 declare -A WEBUI_MAP=(
     ["Stable-diffusion"]="checkpoints"
     ["Lora"]="loras"
@@ -259,7 +250,6 @@ declare -A WEBUI_MAP=(
     ["Hypernetwork"]="hypernetworks"
 )
 for WEBUI_M in \
-    "$WORKSPACE/stable-diffusion-webui/models" \
     "$WORKSPACE/stable-diffusion-webui-forge/models"
 do
     mkdir -p "$WEBUI_M"
@@ -271,7 +261,7 @@ done
 
 log "✅ Symlinks creados — /workspace/models es la fuente única"
 
-# ── 8. Arrancar servicios con tmux ───────────────────────────────
+# ── 7. Arrancar servicios con tmux ───────────────────────────────
 section "Arrancando servicios"
 
 tmux kill-server 2>/dev/null || true
@@ -313,13 +303,13 @@ cd $WORKSPACE/ComfyUI && \
 python main.py --listen 0.0.0.0 --port 8188 --enable-cors-header \
 >> $LOGS_DIR/comfyui.log 2>&1 & echo \$! > $LOGS_DIR/pids/comfyui.pid; wait" Enter
 
-# A1111, Forge y Kohya se lanzan desde el panel (slot exclusivo :7860)
+# Forge y Kohya se lanzan desde el panel (slot exclusivo :7860)
 
 section "Setup completado ✅"
 log "  Panel de control  → puerto 3000"
 log "  Jupyter Lab       → puerto 8888"
 log "  ComfyUI           → puerto 8188  (arrancando...)"
-log "  A1111/Forge/Kohya → puerto 7860  (lanzar desde el panel)"
+log "  Forge/Kohya → puerto 7860  (lanzar desde el panel)"
 log "  TensorBoard       → puerto 6006  (auto con Kohya)"
 log ""
 log "  tmux attach -t studio   → ver servicios activos"

@@ -27,21 +27,7 @@ PIDS_DIR.mkdir(parents=True, exist_ok=True)
 # group 'independent' → convive con los demás
 
 SERVICES = {
-    'a1111': {
-        'name': 'Automatic1111',
-        'group': 'exclusive',
-        'port': 7860,
-        'cmd': (
-            'source /root/.studio_cuda_env 2>/dev/null || true; '
-            'cd /workspace/stable-diffusion-webui && '
-            'python3 launch.py '
-            '--listen --port 7860 '
-            '--api --enable-insecure-extension-access '
-            '--cors-allow-origins=* --no-half-vae '
-            '--skip-torch-cuda-test'
-        ),
-        'log': 'a1111.log',
-    },
+    
     'forge': {
         'name': 'Forge',
         'group': 'exclusive',

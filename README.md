@@ -1,6 +1,6 @@
 # RunPod AI Studio
 
-Panel de control unificado para entornos de generación y entrenamiento de imágenes IA en RunPod. Gestiona múltiples herramientas (ComfyUI, Automatic1111, Forge, Kohya_ss) desde una interfaz web centralizada, con descarga de modelos integrada desde CivitAI y HuggingFace.
+Panel de control unificado para entornos de generación y entrenamiento de imágenes IA en RunPod. Gestiona múltiples herramientas (ComfyUI, Forge, Kohya_ss) desde una interfaz web centralizada, con descarga de modelos integrada desde CivitAI y HuggingFace.
 
 ---
 
@@ -23,7 +23,7 @@ Panel de control unificado para entornos de generación y entrenamiento de imág
 | Puerto | Servicio |
 |---|---|
 | 3000 | Control Panel (siempre activo) |
-| 7860 | Slot exclusivo: A1111 / Forge / Kohya_ss |
+| 7860 | Slot exclusivo: Forge / Kohya_ss |
 | 8188 | ComfyUI (siempre activo) |
 | 8888 | Jupyter Lab (siempre activo) |
 | 6006 | TensorBoard (auto al lanzar Kohya) |
@@ -88,15 +88,12 @@ Detecta `$RUNPOD_GPU_COUNT` y copia el yaml correspondiente a `/root/.cache/hugg
 - Instala dependencias con `pip install -r requirements.txt`
 - Instala ComfyUI Manager desde `https://github.com/ltdrdata/ComfyUI-Manager.git`
 
-### Sección 5 — Automatic1111
-- Clona `https://github.com/AUTOMATIC1111/stable-diffusion-webui.git`
-- No instala dependencias — A1111 las gestiona en su primer arranque automáticamente
 
-### Sección 6 — Forge
+### Sección 5 — Forge
 - Clona `https://github.com/lllyasviel/stable-diffusion-webui-forge.git`
-- Igual que A1111, se auto-instala en el primer arranque
+- Se auto-instala en el primer arranque
 
-### Sección 7 — Estructura de modelos y symlinks
+### Sección 6 — Estructura de modelos y symlinks
 Crea `/workspace/models/` como **fuente única de modelos**:
 
 ```
@@ -119,15 +116,15 @@ Crea symlinks desde las carpetas que espera cada herramienta:
 | ComfyUI | `ComfyUI/models/checkpoints` | `/workspace/models/checkpoints` |
 | ComfyUI | `ComfyUI/models/loras` | `/workspace/models/loras` |
 | ComfyUI | `ComfyUI/models/upscale_models` | `/workspace/models/upscalers` |
-| A1111/Forge | `models/Stable-diffusion` | `/workspace/models/checkpoints` |
-| A1111/Forge | `models/Lora` | `/workspace/models/loras` |
-| A1111/Forge | `models/VAE` | `/workspace/models/vae` |
-| A1111/Forge | `models/ControlNet` | `/workspace/models/controlnet` |
-| A1111/Forge | `models/ESRGAN` | `/workspace/models/upscalers` |
+| Forge | `models/Stable-diffusion` | `/workspace/models/checkpoints` |
+| Forge | `models/Lora` | `/workspace/models/loras` |
+| Forge | `models/VAE` | `/workspace/models/vae` |
+| Forge | `models/ControlNet` | `/workspace/models/controlnet` |
+| Forge | `models/ESRGAN` | `/workspace/models/upscalers` |
 
 Un modelo descargado una sola vez es visible automáticamente en todas las herramientas.
 
-### Sección 8 — Arranque de servicios con tmux
+### Sección 7 — Arranque de servicios con tmux
 Crea sesión tmux `studio` con 3 ventanas permanentes:
 
 | Ventana tmux | Proceso | Puerto |
@@ -136,7 +133,7 @@ Crea sesión tmux `studio` con 3 ventanas permanentes:
 | `jupyter` | `jupyter lab` | 8888 |
 | `comfyui` | `python main.py --listen 0.0.0.0 --enable-cors-header` | 8188 |
 
-A1111, Forge y Kohya se lanzan desde el panel bajo demanda (slot exclusivo puerto 7860).
+Forge y Kohya se lanzan desde el panel bajo demanda (slot exclusivo puerto 7860).
 
 ---
 
@@ -148,7 +145,7 @@ API REST que gestiona procesos, descargas y modelos. Corre en el Python del sist
 
 ```python
 SERVICES = {
-    'a1111':   { 'group': 'exclusive', 'port': 7860, ... },
+
     'forge':   { 'group': 'exclusive', 'port': 7860, ... },
     'kohya':   { 'group': 'exclusive', 'port': 7860, 'tensorboard': True, ... },
     'comfyui': { 'group': 'independent', 'port': 8188, ... },
@@ -162,7 +159,6 @@ SERVICES = {
 
 | Servicio | Flags relevantes |
 |---|---|
-| A1111 | `--listen --port 7860 --api --cors-allow-origins=* --no-half-vae` |
 | Forge | `--listen --port 7860 --api --cors-allow-origins=*` |
 | Kohya | `--server_port 7860 --listen=0.0.0.0 --headless` |
 | ComfyUI | `--listen 0.0.0.0 --port 8188 --enable-cors-header` |
@@ -213,7 +209,7 @@ Aplicación de página única en HTML/CSS/JS puro, sin dependencias externas. Se
 Vista rápida con tarjetas de estado de todos los servicios activos y descargas en curso. Se actualiza automáticamente cada 3 segundos mediante polling.
 
 **Lanzador**
-- Slot exclusivo (:7860): cards de A1111, Forge y Kohya con botones start/stop/restart. Muestra aviso de qué servicio se parará al lanzar otro.
+- Slot exclusivo (:7860): cards de Forge y Kohya con botones start/stop/restart. Muestra aviso de qué servicio se parará al lanzar otro.
 - Servicios independientes: ComfyUI con botones open/restart/stop.
 - TensorBoard: estado y enlace al puerto 6006, visible solo cuando Kohya está en el slot.
 
@@ -233,7 +229,7 @@ Lista de todos los ficheros en `/workspace/models/` agrupados por categoría, co
 Muestra estado de `HF_TOKEN` y `CIVITAI_TOKEN` — verde si detectados como RunPod Secret, rojo si no. Formulario para sobreescribir en memoria (se pierden al reiniciar el pod).
 
 **Logs**
-Visor de logs con selector de servicio (ComfyUI, A1111, Forge, Kohya, TensorBoard, Panel). Muestra las últimas 200 líneas con scroll automático al final.
+Visor de logs con selector de servicio (ComfyUI, Forge, Kohya, TensorBoard, Panel). Muestra las últimas 200 líneas con scroll automático al final.
 
 ### Polling automático
 Llama a `/api/status` cada 3 segundos para mantener actualizado el estado de servicios, GPU, VRAM, disco y descargas activas. La sección de descargas también se refresca cada 3 segundos si está visible.
