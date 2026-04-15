@@ -43,12 +43,13 @@ SERVICES = {
         ),
         'log': 'forge.log',
     },
-    'kohya': {
+        'kohya': {
         'name': 'Kohya_ss',
         'group': 'exclusive',
         'port': 7860,
         'cmd': (
             'source /root/.studio_cuda_env 2>/dev/null || true; '
+            '[ -f /workspace/kohya_ss/venv/bin/activate ] && source /workspace/kohya_ss/venv/bin/activate || true; '
             'cd /workspace/kohya_ss && '
             './gui.sh --server_port 7860 --listen=0.0.0.0 --headless'
         ),

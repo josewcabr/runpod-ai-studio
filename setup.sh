@@ -107,7 +107,7 @@ git checkout master 2>/dev/null || true
 git pull --recurse-submodules 2>&1 | tee -a "$LOG_FILE" || \
     log "⚠  git pull kohya_ss falló (continuando con versión actual)"
 
-if ! is_done "$WORKSPACE/kohya_ss"; then
+if ! is_done "$WORKSPACE/kohya_ss" || [ ! -d "$WORKSPACE/kohya_ss/venv" ]; then
     log "Instalando dependencias de Kohya..."
 
     # Fix de rutas CUDNN/TensorRT (necesario en runpod/pytorch)
@@ -131,15 +131,18 @@ if ! is_done "$WORKSPACE/kohya_ss"; then
 
     ./setup.sh -n -p -r -s -u
 
-    # Activar el venv de Kohya para los pip installs post-setup
+        # Activar el venv de Kohya para los pip installs post-setup
     KOHYA_VENV="$WORKSPACE/kohya_ss/venv"
-    if [ -f "$KOHYA_VENV/bin/activate" ]; then
-        # shellcheck disable=SC1091
-        source "$KOHYA_VENV/bin/activate"
-        log "Venv de Kohya activado: $KOHYA_VENV"
-    else
-        log "⚠  No se encontró el venv de Kohya en $KOHYA_VENV — pip apuntará al sistema"
+    if [ ! -f "$KOHYA_VENV/bin/activate" ]; then
+        log "⚠  El venv de Kohya no existe. Creando manualmente..."
+        cd "$WORKSPACE/kohya_ss"
+        python3 -m venv venv
+        log "✅ Venv de Kohya creado manualmente"
     fi
+    
+    # shellcheck disable=SC1091
+    source "$KOHYA_VENV/bin/activate"
+    log "Venv de Kohya activado: $KOHYA_VENV"
 
     # Kohya instala torch 2.5.0+cu124 y xformers 0.0.28.post2 por su cuenta.
     # Solo aseguramos torchaudio compatible y bitsandbytes actualizado.
