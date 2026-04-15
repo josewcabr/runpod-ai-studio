@@ -177,14 +177,15 @@ if ! is_done "$WORKSPACE/ComfyUI" || [ ! -d "$WORKSPACE/ComfyUI/venv" ]; then
     source venv/bin/activate
     pip install --upgrade pip wheel -q
 
-    # Instalar torch cu124 ANTES que requirements.txt para que no lo sobreescriba.
-    # El driver del pod reporta versión 12040 (CUDA 12.4) → cu124 es la versión correcta.
-    log "Instalando PyTorch cu124 para ComfyUI..."
+    # Instalar torch cu121 ANTES que requirements.txt para que no lo sobreescriba.
+    # La imagen base es cuda12.1.1 → cu121 es el toolkit correcto para el container.
+    # El driver 12040 (12.4) es backward compatible con cu121.
+    log "Instalando PyTorch cu121 para ComfyUI..."
     pip install -q \
-        torch==2.5.0+cu124 \
-        torchvision==0.20.0+cu124 \
-        torchaudio==2.5.0+cu124 \
-        --index-url https://download.pytorch.org/whl/cu124
+        torch==2.2.0+cu121 \
+        torchvision==0.17.0+cu121 \
+        torchaudio==2.2.0+cu121 \
+        --index-url https://download.pytorch.org/whl/cu121
 
     log "Instalando dependencias de ComfyUI..."
     pip install -q -r requirements.txt
