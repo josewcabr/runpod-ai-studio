@@ -169,14 +169,11 @@ fi
 if ! is_done "$WORKSPACE/ComfyUI"; then
     cd ComfyUI || { log "FATAL: No se puede acceder a ComfyUI"; exit 1; }
 
-    # Crear venv propio para aislar torch de ComfyUI del sistema base
-    log "Creando venv de ComfyUI..."
-    python3 -m venv venv
-    # shellcheck disable=SC1091
-    source venv/bin/activate
-    pip install --upgrade pip wheel -q
-
-    log "Instalando dependencias de ComfyUI..."
+    # La imagen runpod/pytorch ya tiene torch+CUDA instalados en el sistema.
+    # Crear un venv instala un torch diferente (más nuevo) que puede ser
+    # incompatible con el driver CUDA del pod → CUDA no disponible.
+    # Usamos el Python del sistema directamente.
+    log "Instalando dependencias de ComfyUI (Python sistema)..."
     pip install -q -r requirements.txt
 
     # ComfyUI Manager
@@ -184,7 +181,6 @@ if ! is_done "$WORKSPACE/ComfyUI"; then
     git clone --depth 1 https://github.com/ltdrdata/ComfyUI-Manager.git 2>/dev/null || \
         log "⚠  ComfyUI-Manager no se pudo clonar, continuando sin él"
     [ -f ComfyUI-Manager/requirements.txt ] && pip install -q -r ComfyUI-Manager/requirements.txt
-    deactivate
 
     mark_done "$WORKSPACE/ComfyUI"
     log "✅ ComfyUI + Manager instalados"
@@ -297,7 +293,7 @@ tmux send-keys -t studio:jupyter \
 mkdir -p "$LOGS_DIR/pids"
 tmux new-window -t studio -n 'comfyui'
 tmux send-keys -t studio:comfyui \
-    "${CUDA_SOURCE}source $WORKSPACE/ComfyUI/venv/bin/activate && \
+    "${CUDA_SOURCE}[ -f $WORKSPACE/ComfyUI/venv/bin/activate ] && source $WORKSPACE/ComfyUI/venv/bin/activate || true; \
 cd $WORKSPACE/ComfyUI && \
 python main.py --listen 0.0.0.0 --port 8188 --enable-cors-header \
 >> $LOGS_DIR/comfyui.log 2>&1 & echo \$! > $LOGS_DIR/pids/comfyui.pid; wait" Enter

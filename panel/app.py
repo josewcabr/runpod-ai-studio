@@ -75,7 +75,7 @@ SERVICES = {
         'port': 8188,
         'cmd': (
             'source /root/.studio_cuda_env 2>/dev/null || true; '
-            'source /workspace/ComfyUI/venv/bin/activate && '
+            '[ -f /workspace/ComfyUI/venv/bin/activate ] && source /workspace/ComfyUI/venv/bin/activate || true; '
             'cd /workspace/ComfyUI && '
             'python main.py '
             '--listen 0.0.0.0 --port 8188 --enable-cors-header'
