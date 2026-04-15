@@ -144,17 +144,25 @@ if ! is_done "$WORKSPACE/kohya_ss" || [ ! -d "$WORKSPACE/kohya_ss/venv" ]; then
         source "$KOHYA_VENV/bin/activate"
         log "Venv de Kohya activado: $KOHYA_VENV"
 
+                # Limpiar cualquier instalación previa de torch
+        log "Limpiando instalaciones previas de PyTorch..."
+        pip uninstall -y torch torchvision torchaudio xformers 2>/dev/null || true
+        
         # Instalar stack controlado para RTX 4090 (CUDA 12.1)
         log "Instalando PyTorch 2.1.2+cu121 para RTX 4090..."
-        pip install -q \
+                        pip install --force-reinstall -q \
             torch==2.1.2+cu121 \
             torchvision==0.16.2+cu121 \
             torchaudio==2.1.2+cu121 \
             --index-url https://download.pytorch.org/whl/cu121
+        
+        # Verificar versión instalada
+        log "Verificando versión de PyTorch..."
+        python -c "import torch; print(f'Torch version: {torch.__version__}')" 2>&1 | tee -a "$LOG_FILE" || true
 
         # xformers compatible con torch 2.1.2
         log "Instalando xformers compatible..."
-        pip install -q xformers==0.0.23.post1
+        pip install --no-deps -q xformers==0.0.23.post1
 
         # Dependencias críticas de Kohya
         log "Instalando dependencias básicas de Kohya..."
