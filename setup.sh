@@ -132,28 +132,44 @@ if ! is_done "$WORKSPACE/kohya_ss" || [ ! -d "$WORKSPACE/kohya_ss/venv" ]; then
     ./setup.sh -n -p -r -s -u
 
         # Activar el venv de Kohya para los pip installs post-setup
-    KOHYA_VENV="$WORKSPACE/kohya_ss/venv"
-    if [ ! -f "$KOHYA_VENV/bin/activate" ]; then
-        log "⚠  El venv de Kohya no existe. Creando manualmente..."
-        cd "$WORKSPACE/kohya_ss"
-        python3 -m venv venv
-        log "✅ Venv de Kohya creado manualmente"
-    fi
+        KOHYA_VENV="$WORKSPACE/kohya_ss/venv"
+        if [ ! -f "$KOHYA_VENV/bin/activate" ]; then
+            log "⚠  El venv de Kohya no existe. Creando manualmente..."
+            cd "$WORKSPACE/kohya_ss"
+            python3 -m venv venv
+            log "✅ Venv de Kohya creado manualmente"
+        fi
     
-    # shellcheck disable=SC1091
-    source "$KOHYA_VENV/bin/activate"
-    log "Venv de Kohya activado: $KOHYA_VENV"
+        # shellcheck disable=SC1091
+        source "$KOHYA_VENV/bin/activate"
+        log "Venv de Kohya activado: $KOHYA_VENV"
 
-    # Kohya instala torch 2.5.0+cu124 y xformers 0.0.28.post2 por su cuenta.
-    # Solo aseguramos torchaudio compatible y bitsandbytes actualizado.
-    log "Aplicando fixes de bitsandbytes y torchaudio..."
-    pip uninstall bitsandbytes -y 2>/dev/null || true
-    pip install bitsandbytes --upgrade -q
-    pip install -q \
-        torchaudio==2.5.0+cu124 \
-        --index-url https://download.pytorch.org/whl/cu124
+        # Instalar stack controlado para RTX 4090 (CUDA 12.1)
+        log "Instalando PyTorch 2.1.2+cu121 para RTX 4090..."
+        pip install -q \
+            torch==2.1.2+cu121 \
+            torchvision==0.16.2+cu121 \
+            torchaudio==2.1.2+cu121 \
+            --index-url https://download.pytorch.org/whl/cu121
 
-    deactivate 2>/dev/null || true
+        # xformers compatible con torch 2.1.2
+        log "Instalando xformers compatible..."
+        pip install -q xformers==0.0.23.post1
+
+        # Dependencias críticas de Kohya
+        log "Instalando dependencias básicas de Kohya..."
+        pip install -q \
+            gradio>=4.0 \
+            transformers \
+            accelerate \
+            diffusers
+
+        # Actualizar bitsandbytes
+        log "Actualizando bitsandbytes..."
+        pip uninstall bitsandbytes -y 2>/dev/null || true
+        pip install bitsandbytes --upgrade -q
+
+        deactivate 2>/dev/null || true
 
     mark_done "$WORKSPACE/kohya_ss"
     log "✅ Kohya_ss instalado"
