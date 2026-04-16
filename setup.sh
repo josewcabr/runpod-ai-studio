@@ -164,18 +164,27 @@ if ! is_done "$WORKSPACE/kohya_ss" || [ ! -d "$WORKSPACE/kohya_ss/venv" ]; then
         log "Instalando xformers compatible..."
         pip install --no-deps -q xformers==0.0.23.post1
 
+        # Constraints para que ningún pip install posterior toque el stack de torch
+        cat > /tmp/kohya_constraints.txt <<'EOF'
+torch==2.1.2+cu121
+torchvision==0.16.2+cu121
+torchaudio==2.1.2+cu121
+xformers==0.0.23.post1
+EOF
+
         # Dependencias críticas de Kohya
         log "Instalando dependencias básicas de Kohya..."
         pip install -q \
-            gradio>=4.0 \
+            "gradio>=4.0" \
             transformers \
             accelerate \
-            diffusers
+            diffusers \
+            -c /tmp/kohya_constraints.txt
 
-        # Actualizar bitsandbytes
-        log "Actualizando bitsandbytes..."
+        # bitsandbytes — SIN --upgrade para evitar que arrastre torch a PyPI general
+        log "Instalando bitsandbytes..."
         pip uninstall bitsandbytes -y 2>/dev/null || true
-        pip install bitsandbytes --upgrade -q
+        pip install bitsandbytes -q -c /tmp/kohya_constraints.txt
 
         deactivate 2>/dev/null || true
 
