@@ -167,14 +167,22 @@ EOF
     pip install --no-deps -q xformers==0.0.23.post1
 
     # ── requirements.txt de kohya (excluye torch/xformers ya instalados) ─
+    # Se filtran también entradas -e ./ para manejar sd-scripts explícitamente
     log "Instalando requirements.txt de Kohya..."
     grep -vE "^\s*(torch|torchvision|torchaudio|xformers)([ =><!]|$)" \
         "$WORKSPACE/kohya_ss/requirements.txt" \
+    | grep -vE "^\s*-e\s+\." \
         > /tmp/kohya_requirements_filtered.txt
     pip install -q \
         -r /tmp/kohya_requirements_filtered.txt \
         -c /tmp/kohya_constraints.txt \
         --extra-index-url https://download.pytorch.org/whl/cu121
+
+    # ── sd-scripts: backend real de entrenamiento (LoRA, DreamBooth, FLUX) ─
+    # Instalación explícita con ruta absoluta para evitar ambigüedad de CWD
+    log "Instalando sd-scripts..."
+    pip install -q -e "$WORKSPACE/kohya_ss/sd-scripts" \
+        -c /tmp/kohya_constraints.txt
 
     # ── Extras críticos para LoRA y FLUX (no siempre en requirements.txt) ─
     log "Instalando extras de entrenamiento (LoRA/FLUX)..."
