@@ -123,49 +123,37 @@ if ! is_done "$WORKSPACE/kohya_ss" || [ ! -d "$WORKSPACE/kohya_ss/venv" ]; then
         [ -n "$TENSORRT_PATH" ] && echo "export LD_LIBRARY_PATH=\"$TENSORRT_PATH:\${LD_LIBRARY_PATH:-}\""
     } > "$CUDA_ENV_FILE"
 
-    # Setup oficial de kohya (gestiona su propio entorno)
-    chmod +x ./setup.sh
-
-    # Asegurar python3-tk antes de que el setup de Kohya lo compruebe
     apt-get install -y python3-tk 2>/dev/null || true
 
-    ./setup.sh -n -p -r -s -u
+    # ── Crear venv propio ANTES de cualquier pip install ─────────────
+    # No se usa ./setup.sh de kohya: en RunPod falla al crear el venv y
+    # cae al Python del sistema, contaminándolo e instalando fuera del venv.
+    KOHYA_VENV="$WORKSPACE/kohya_ss/venv"
+    log "Creando venv de Kohya..."
+    python3 -m venv "$KOHYA_VENV"
+    # shellcheck disable=SC1091
+    source "$KOHYA_VENV/bin/activate"
+    pip install --upgrade pip wheel setuptools -q
+    log "Venv activado: $KOHYA_VENV"
 
-        # Activar el venv de Kohya para los pip installs post-setup
-        KOHYA_VENV="$WORKSPACE/kohya_ss/venv"
-        if [ ! -f "$KOHYA_VENV/bin/activate" ]; then
-            log "⚠  El venv de Kohya no existe. Creando manualmente..."
-            cd "$WORKSPACE/kohya_ss"
-            python3 -m venv venv
-            log "✅ Venv de Kohya creado manualmente"
-        fi
-    
-        # shellcheck disable=SC1091
-        source "$KOHYA_VENV/bin/activate"
-        log "Venv de Kohya activado: $KOHYA_VENV"
+    # ── Stack PyTorch controlado para RTX 4090 (CUDA 12.1) ───────────
+    log "Instalando PyTorch 2.1.2+cu121..."
+    pip install -q \
+        torch==2.1.2+cu121 \
+        torchvision==0.16.2+cu121 \
+        torchaudio==2.1.2+cu121 \
+        --index-url https://download.pytorch.org/whl/cu121
 
-                # Limpiar cualquier instalación previa de torch
-        log "Limpiando instalaciones previas de PyTorch..."
-        pip uninstall -y torch torchvision torchaudio xformers 2>/dev/null || true
-        
-        # Instalar stack controlado para RTX 4090 (CUDA 12.1)
-        log "Instalando PyTorch 2.1.2+cu121 para RTX 4090..."
-                        pip install --force-reinstall -q \
-            torch==2.1.2+cu121 \
-            torchvision==0.16.2+cu121 \
-            torchaudio==2.1.2+cu121 \
-            --index-url https://download.pytorch.org/whl/cu121
-        
-        # Verificar versión instalada
-        log "Verificando versión de PyTorch..."
-        python -c "import torch; print(f'Torch version: {torch.__version__}')" 2>&1 | tee -a "$LOG_FILE" || true
+    log "Verificando PyTorch..."
+    python -c "import torch; print(f'Torch: {torch.__version__}, CUDA: {torch.cuda.is_available()}')" \
+        2>&1 | tee -a "$LOG_FILE" || true
 
-        # xformers compatible con torch 2.1.2
-        log "Instalando xformers compatible..."
-        pip install --no-deps -q xformers==0.0.23.post1
+    # xformers exacto para torch 2.1.2 — --no-deps para no arrastrar otro torch
+    log "Instalando xformers..."
+    pip install --no-deps -q xformers==0.0.23.post1
 
-        # Constraints para que ningún pip install posterior toque el stack de torch
-        cat > /tmp/kohya_constraints.txt <<'EOF'
+    # ── Constraints: ningún pip install posterior puede tocar el stack ─
+    cat > /tmp/kohya_constraints.txt <<'EOF'
 torch==2.1.2+cu121
 torchvision==0.16.2+cu121
 torchaudio==2.1.2+cu121
@@ -173,21 +161,27 @@ xformers==0.0.23.post1
 numpy<2
 EOF
 
-        # Dependencias críticas de Kohya
-        log "Instalando dependencias básicas de Kohya..."
-        pip install -q \
-            "gradio>=4.0" \
-            transformers \
-            accelerate \
-            diffusers \
-            -c /tmp/kohya_constraints.txt
+    # ── requirements.txt de kohya (excluye torch/xformers ya instalados) ─
+    log "Instalando requirements.txt de Kohya..."
+    grep -vE "^\s*(torch|torchvision|torchaudio|xformers)([ =><!]|$)" \
+        "$WORKSPACE/kohya_ss/requirements.txt" \
+        > /tmp/kohya_requirements_filtered.txt
+    pip install -q \
+        -r /tmp/kohya_requirements_filtered.txt \
+        -c /tmp/kohya_constraints.txt \
+        --extra-index-url https://download.pytorch.org/whl/cu121
 
-        # bitsandbytes — SIN --upgrade para evitar que arrastre torch a PyPI general
-        log "Instalando bitsandbytes..."
-        pip uninstall bitsandbytes -y 2>/dev/null || true
-        pip install bitsandbytes -q -c /tmp/kohya_constraints.txt
+    # ── Extras críticos para LoRA y FLUX (no siempre en requirements.txt) ─
+    log "Instalando extras de entrenamiento (LoRA/FLUX)..."
+    pip install -q \
+        lycoris-lora \
+        prodigyopt \
+        schedulefree \
+        lion-pytorch \
+        open-clip-torch \
+        -c /tmp/kohya_constraints.txt
 
-        deactivate 2>/dev/null || true
+    deactivate 2>/dev/null || true
 
     mark_done "$WORKSPACE/kohya_ss"
     log "✅ Kohya_ss instalado"
