@@ -134,6 +134,8 @@ if ! is_done "$WORKSPACE/kohya_ss" || [ ! -d "$WORKSPACE/kohya_ss/venv" ]; then
     # shellcheck disable=SC1091
     source "$KOHYA_VENV/bin/activate"
     pip install --upgrade pip wheel setuptools -q
+    # Verificar que pkg_resources es importable — setuptools puede fallar silenciosamente con -q
+    python -c "import pkg_resources" 2>/dev/null || pip install --force-reinstall setuptools -q
     log "Venv activado: $KOHYA_VENV"
 
     # ── Constraints PRIMERO: protege numpy y torch desde el inicio ────

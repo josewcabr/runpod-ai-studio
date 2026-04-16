@@ -51,7 +51,7 @@ SERVICES = {
             'source /root/.studio_cuda_env 2>/dev/null || true; '
             '[ -f /workspace/kohya_ss/venv/bin/activate ] && source /workspace/kohya_ss/venv/bin/activate || true; '
             'cd /workspace/kohya_ss && '
-            './gui.sh --server_port 7860 --listen=0.0.0.0 --headless'
+            './gui.sh --server_port 7860 --listen=0.0.0.0 --headless --noverify'
         ),
         'log': 'kohya.log',
         'tensorboard': True,
