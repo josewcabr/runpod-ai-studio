@@ -170,6 +170,7 @@ torch==2.1.2+cu121
 torchvision==0.16.2+cu121
 torchaudio==2.1.2+cu121
 xformers==0.0.23.post1
+numpy<2
 EOF
 
         # Dependencias críticas de Kohya
