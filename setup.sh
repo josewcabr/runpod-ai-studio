@@ -136,13 +136,25 @@ if ! is_done "$WORKSPACE/kohya_ss" || [ ! -d "$WORKSPACE/kohya_ss/venv" ]; then
     pip install --upgrade pip wheel setuptools -q
     log "Venv activado: $KOHYA_VENV"
 
+    # ── Constraints PRIMERO: protege numpy y torch desde el inicio ────
+    # El constraints file debe existir ANTES de instalar torch para que
+    # torchvision no arrastre numpy 2.x como dependencia transitiva.
+    cat > /tmp/kohya_constraints.txt <<'EOF'
+torch==2.1.2+cu121
+torchvision==0.16.2+cu121
+torchaudio==2.1.2+cu121
+xformers==0.0.23.post1
+numpy==1.26.4
+EOF
+
     # ── Stack PyTorch controlado para RTX 4090 (CUDA 12.1) ───────────
     log "Instalando PyTorch 2.1.2+cu121..."
     pip install -q \
         torch==2.1.2+cu121 \
         torchvision==0.16.2+cu121 \
         torchaudio==2.1.2+cu121 \
-        --index-url https://download.pytorch.org/whl/cu121
+        --index-url https://download.pytorch.org/whl/cu121 \
+        -c /tmp/kohya_constraints.txt
 
     log "Verificando PyTorch..."
     python -c "import torch; print(f'Torch: {torch.__version__}, CUDA: {torch.cuda.is_available()}')" \
@@ -151,15 +163,6 @@ if ! is_done "$WORKSPACE/kohya_ss" || [ ! -d "$WORKSPACE/kohya_ss/venv" ]; then
     # xformers exacto para torch 2.1.2 — --no-deps para no arrastrar otro torch
     log "Instalando xformers..."
     pip install --no-deps -q xformers==0.0.23.post1
-
-    # ── Constraints: ningún pip install posterior puede tocar el stack ─
-    cat > /tmp/kohya_constraints.txt <<'EOF'
-torch==2.1.2+cu121
-torchvision==0.16.2+cu121
-torchaudio==2.1.2+cu121
-xformers==0.0.23.post1
-numpy<2
-EOF
 
     # ── requirements.txt de kohya (excluye torch/xformers ya instalados) ─
     log "Instalando requirements.txt de Kohya..."
