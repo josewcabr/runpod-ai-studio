@@ -194,6 +194,13 @@ EOF
         open-clip-torch \
         -c /tmp/kohya_constraints.txt
 
+    # ── bitsandbytes: necesario para AdamW8bit y optimizadores 8-bit ────
+    # Se instala explícitamente porque puede fallar silenciosamente desde
+    # requirements.txt (versión incompatible o error de compilación CUDA).
+    # 0.43.3 es la última versión estable con CUDA 12.1 + torch 2.1.2.
+    log "Instalando bitsandbytes para optimizadores 8-bit..."
+    pip install -q bitsandbytes==0.43.3
+
     deactivate 2>/dev/null || true
 
     mark_done "$WORKSPACE/kohya_ss"
