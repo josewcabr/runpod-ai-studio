@@ -296,6 +296,80 @@ btn, .btn {
 .row { display: flex; gap: 10px; align-items: center; }
 .col { display: flex; flex-direction: column; gap: 10px; }
 .mt { margin-top: 12px; }
+
+/* ── Tabs ───────────────────────────────────────────────────────── */
+.tab-bar { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+.tab-btn {
+  padding: 7px 14px; font-size: 12px; font-family: var(--font);
+  background: none; border: none; border-bottom: 2px solid transparent;
+  color: var(--muted); cursor: pointer; transition: color .12s; margin-bottom: -1px;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 500; }
+
+/* ── Upload zone ─────────────────────────────────────────────────── */
+.upload-zone {
+  border: 2px dashed var(--border2); border-radius: var(--r-lg);
+  padding: 28px; text-align: center; color: var(--muted);
+  margin: 12px 0; cursor: pointer; transition: border-color .15s, background .15s;
+}
+.upload-zone:hover, .upload-zone.drag-over {
+  border-color: var(--accent); background: var(--surf2); color: var(--text);
+}
+.upload-zone-icon { font-size: 24px; margin-bottom: 8px; }
+.upload-zone-text { font-size: 13px; }
+.upload-zone-sub  { font-size: 11px; color: var(--muted2); margin-top: 4px; }
+
+/* ── Upload file list ────────────────────────────────────────────── */
+.up-file-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.up-file-item {
+  background: var(--surf2); border: 1px solid var(--border);
+  border-radius: var(--r); padding: 10px 12px;
+}
+.up-file-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.up-file-name   { font-family: var(--mono); font-size: 12px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.up-file-status { font-size: 11px; padding: 2px 8px; border-radius: 10px; flex-shrink: 0; margin-left: 8px; }
+.up-file-status.pending   { background: var(--surf3); color: var(--muted); }
+.up-file-status.uploading { background: #0d1e35; color: var(--blue); }
+.up-file-status.done      { background: var(--green-bg); color: var(--green); }
+.up-file-status.error     { background: var(--red-bg); color: var(--red); }
+
+/* ── Config editor ───────────────────────────────────────────────── */
+.cfg-file-list { display: flex; flex-direction: column; gap: 5px; }
+.cfg-item {
+  background: var(--surf2); border: 1px solid var(--border);
+  border-radius: var(--r); padding: 10px 14px;
+  display: flex; align-items: center; gap: 10px;
+  cursor: pointer; transition: border-color .12s;
+}
+.cfg-item:hover { border-color: var(--border2); }
+.cfg-name { flex: 1; font-family: var(--mono); font-size: 12px; }
+.cfg-size { font-size: 11px; color: var(--muted); }
+.cfg-editor-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--border);
+}
+.cfg-textarea {
+  width: 100%; min-height: 460px; resize: vertical;
+  background: #080a12; border: 1px solid var(--border);
+  color: #a0c8ff; font-family: var(--mono); font-size: 12px;
+  border-radius: var(--r); padding: 12px; outline: none; line-height: 1.6;
+}
+.cfg-textarea:focus { border-color: var(--accent); }
+
+/* ── Output grid ─────────────────────────────────────────────────── */
+.out-grid { display: flex; flex-direction: column; gap: 4px; max-height: 380px; overflow-y: auto; margin-bottom: 4px; }
+.out-item {
+  background: var(--surf2); border: 1px solid var(--border);
+  border-radius: var(--r); padding: 8px 12px;
+  display: flex; align-items: center; gap: 10px; cursor: pointer;
+  transition: border-color .12s;
+}
+.out-item:hover    { border-color: var(--border2); }
+.out-item.selected { border-color: var(--accent); background: var(--surf3); }
+.out-check { width: 15px; height: 15px; flex-shrink: 0; accent-color: var(--accent); cursor: pointer; }
+.out-name  { flex: 1; font-family: var(--mono); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.out-size  { font-size: 11px; color: var(--muted); flex-shrink: 0; }
 </style>
 </head>
 <body>
@@ -332,6 +406,15 @@ btn, .btn {
       </div>
       <div class="nav-item" data-sec="installed">
         <span class="nav-icon">▤</span> Instalados
+      </div>
+    </div>
+    <div class="nav-group">
+      <div class="nav-label">Archivos</div>
+      <div class="nav-item" data-sec="archivos">
+        <span class="nav-icon">⬆</span> Archivos
+      </div>
+      <div class="nav-item" data-sec="configs">
+        <span class="nav-icon">✎</span> Configs
       </div>
     </div>
     <div class="nav-group">
@@ -514,6 +597,117 @@ btn, .btn {
       </div>
     </div>
 
+    <!-- ─── ARCHIVOS ────────────────────────────────────────────── -->
+    <div class="section" id="sec-archivos">
+      <div class="card">
+        <div class="card-title">Gestión de Archivos</div>
+        <div class="tab-bar" id="archivos-tabs">
+          <button class="tab-btn active" onclick="switchArchivoTab('loras',this)">⬆ LoRAs</button>
+          <button class="tab-btn" onclick="switchArchivoTab('checkpoints',this)">⬆ Checkpoints</button>
+          <button class="tab-btn" onclick="switchArchivoTab('config-up',this)">⬆ Configs</button>
+          <button class="tab-btn" onclick="switchArchivoTab('output',this)">⬇ Output ComfyUI</button>
+        </div>
+
+        <!-- LoRAs -->
+        <div id="tab-loras">
+          <p style="color:var(--muted);font-size:12px;margin-bottom:12px;">Sube uno o varios <code style="color:var(--accent)">.safetensors</code> a <code style="color:var(--accent)">/workspace/models/loras</code>.</p>
+          <div class="upload-zone" id="uz-loras"
+               onclick="document.getElementById('fi-loras').click()"
+               ondragover="uzDragOver(event,this)" ondragleave="uzDragLeave(this)" ondrop="uzDrop(event,'loras')">
+            <input type="file" id="fi-loras" accept=".safetensors" multiple hidden onchange="uzFilesSelected('loras')">
+            <div class="upload-zone-icon">⬆</div>
+            <div class="upload-zone-text">Arrastra .safetensors aquí o haz clic para seleccionar</div>
+            <div class="upload-zone-sub">Solo .safetensors · Múltiples archivos permitidos</div>
+          </div>
+          <div id="uplist-loras" class="up-file-list"></div>
+          <div id="upmsg-loras"></div>
+          <button class="btn primary" onclick="startUpload('loras')" id="upbtn-loras" style="display:none">⬆ Subir archivos</button>
+        </div>
+
+        <!-- Checkpoints -->
+        <div id="tab-checkpoints" style="display:none">
+          <p style="color:var(--muted);font-size:12px;margin-bottom:12px;">Sube uno o varios <code style="color:var(--accent)">.safetensors</code> a <code style="color:var(--accent)">/workspace/models/checkpoints</code>.</p>
+          <div class="upload-zone" id="uz-checkpoints"
+               onclick="document.getElementById('fi-checkpoints').click()"
+               ondragover="uzDragOver(event,this)" ondragleave="uzDragLeave(this)" ondrop="uzDrop(event,'checkpoints')">
+            <input type="file" id="fi-checkpoints" accept=".safetensors" multiple hidden onchange="uzFilesSelected('checkpoints')">
+            <div class="upload-zone-icon">⬆</div>
+            <div class="upload-zone-text">Arrastra .safetensors aquí o haz clic para seleccionar</div>
+            <div class="upload-zone-sub">Solo .safetensors · Múltiples archivos permitidos</div>
+          </div>
+          <div id="uplist-checkpoints" class="up-file-list"></div>
+          <div id="upmsg-checkpoints"></div>
+          <button class="btn primary" onclick="startUpload('checkpoints')" id="upbtn-checkpoints" style="display:none">⬆ Subir archivos</button>
+        </div>
+
+        <!-- Config upload -->
+        <div id="tab-config-up" style="display:none">
+          <p style="color:var(--muted);font-size:12px;margin-bottom:12px;">Sube archivos de configuración <code style="color:var(--accent)">.json</code> o <code style="color:var(--accent)">.txt</code> a <code style="color:var(--accent)">/workspace/training/config</code>.</p>
+          <div class="upload-zone" id="uz-config-up"
+               onclick="document.getElementById('fi-config-up').click()"
+               ondragover="uzDragOver(event,this)" ondragleave="uzDragLeave(this)" ondrop="uzDrop(event,'config-up')">
+            <input type="file" id="fi-config-up" accept=".json,.txt" multiple hidden onchange="uzFilesSelected('config-up')">
+            <div class="upload-zone-icon">⬆</div>
+            <div class="upload-zone-text">Arrastra .json o .txt aquí o haz clic para seleccionar</div>
+            <div class="upload-zone-sub">Solo .json y .txt · Múltiples archivos permitidos</div>
+          </div>
+          <div id="uplist-config-up" class="up-file-list"></div>
+          <div id="upmsg-config-up"></div>
+          <button class="btn primary" onclick="startUpload('config-up')" id="upbtn-config-up" style="display:none">⬆ Subir archivos</button>
+        </div>
+
+        <!-- Output ComfyUI -->
+        <div id="tab-output" style="display:none">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+            <button class="btn sm" onclick="loadOutput()">Actualizar</button>
+            <button class="btn sm" onclick="selectAllOutput(true)">Selec. todo</button>
+            <button class="btn sm" onclick="selectAllOutput(false)">Deselec. todo</button>
+            <span id="out-count" style="color:var(--muted);font-size:12px;margin-left:auto;"></span>
+          </div>
+          <div id="out-grid" class="out-grid"></div>
+          <hr class="sep">
+          <div style="display:flex;gap:10px;align-items:flex-end;">
+            <div style="flex:1">
+              <div class="input-label">Nombre del ZIP (sin extensión)</div>
+              <input class="input" id="zip-name" placeholder="comfyui_output" value="comfyui_output">
+            </div>
+            <button class="btn primary" onclick="downloadOutput()" style="flex-shrink:0;padding:9px 16px;">⬇ Descargar ZIP</button>
+          </div>
+          <div id="out-msg"></div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ─── CONFIGS ──────────────────────────────────────────────── -->
+    <div class="section" id="sec-configs">
+      <div class="card">
+
+        <div id="cfg-list-view">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+            <div class="card-title" style="margin:0">Configuraciones Kohya · <code style="font-size:11px;color:var(--muted)">/workspace/training/config</code></div>
+            <button class="btn sm" onclick="loadConfigs()">Actualizar</button>
+          </div>
+          <p style="color:var(--muted);font-size:12px;margin-bottom:14px;">Haz clic en un archivo para abrirlo en el editor. Sube configuraciones desde <strong>Archivos → Configs</strong>.</p>
+          <div id="cfg-file-list" class="cfg-file-list"></div>
+        </div>
+
+        <div id="cfg-editor-view" style="display:none">
+          <div class="cfg-editor-header">
+            <span id="cfg-editor-filename" style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--accent);"></span>
+            <div style="display:flex;gap:8px;">
+              <button class="btn primary sm" onclick="saveConfig()">Guardar</button>
+              <button class="btn sm" onclick="closeConfigEditor()">Cancelar</button>
+              <button class="btn sm danger" onclick="deleteConfig()">Borrar</button>
+            </div>
+          </div>
+          <div id="cfg-editor-msg" style="min-height:28px;margin-bottom:6px;"></div>
+          <textarea id="cfg-textarea" class="cfg-textarea" spellcheck="false"></textarea>
+        </div>
+
+      </div>
+    </div>
+
   </div><!-- /content -->
 </div><!-- /main -->
 </div><!-- /app -->
@@ -537,6 +731,7 @@ document.querySelectorAll('.nav-item').forEach(el => {
     document.getElementById('sec-' + sec).classList.add('active');
     if (sec === 'installed') loadInstalled();
     if (sec === 'logs')      loadLog();
+    if (sec === 'configs')   loadConfigs();
   });
 });
 
@@ -1017,6 +1212,268 @@ function showMsg(containerId, msg, type) {
   div.textContent = msg;
   if (existing) existing.replaceWith(div);
   else container.appendChild(div);
+}
+
+// ── Archivos ──────────────────────────────────────────────────────
+const UZ_FILES = {};
+
+function switchArchivoTab(tabId, btn) {
+  ['loras','checkpoints','config-up','output'].forEach(id => {
+    const el = document.getElementById('tab-' + id);
+    if (el) el.style.display = id === tabId ? '' : 'none';
+  });
+  document.querySelectorAll('#archivos-tabs .tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  if (tabId === 'output') loadOutput();
+}
+
+function uzDragOver(e, el) { e.preventDefault(); el.classList.add('drag-over'); }
+function uzDragLeave(el)   { el.classList.remove('drag-over'); }
+
+function uzDrop(e, cat) {
+  e.preventDefault();
+  const uz = document.getElementById('uz-' + cat);
+  if (uz) uz.classList.remove('drag-over');
+  UZ_FILES[cat] = Array.from(e.dataTransfer.files);
+  renderUpFileList(cat);
+}
+
+function uzFilesSelected(cat) {
+  const inp = document.getElementById('fi-' + cat);
+  UZ_FILES[cat] = Array.from(inp.files);
+  renderUpFileList(cat);
+}
+
+function renderUpFileList(cat) {
+  const listEl = document.getElementById('uplist-' + cat);
+  const btnEl  = document.getElementById('upbtn-' + cat);
+  const msgEl  = document.getElementById('upmsg-' + cat);
+  const files  = UZ_FILES[cat] || [];
+  if (msgEl) msgEl.innerHTML = '';
+  if (!files.length) {
+    if (listEl) listEl.innerHTML = '';
+    if (btnEl)  btnEl.style.display = 'none';
+    return;
+  }
+  if (listEl) listEl.innerHTML = files.map((f, i) => `
+    <div class="up-file-item" id="upitem-${cat}-${i}">
+      <div class="up-file-header">
+        <span class="up-file-name" title="${escHtml(f.name)}">${escHtml(f.name)}</span>
+        <span class="up-file-status pending" id="upstatus-${cat}-${i}">pendiente</span>
+      </div>
+      <div class="progress" id="upprog-${cat}-${i}" style="display:none">
+        <div class="progress-fill" id="upfill-${cat}-${i}" style="width:0%"></div>
+      </div>
+    </div>`).join('');
+  if (btnEl) btnEl.style.display = '';
+}
+
+function startUpload(cat) {
+  const files = UZ_FILES[cat] || [];
+  if (!files.length) return;
+  const uploadCat = cat === 'config-up' ? 'config' : cat;
+  const btnEl = document.getElementById('upbtn-' + cat);
+  if (btnEl) btnEl.disabled = true;
+  uploadNext(files, cat, uploadCat, 0, 0);
+}
+
+function uploadNext(files, cat, uploadCat, idx, errors) {
+  if (idx >= files.length) {
+    const ok    = files.length - errors;
+    const btnEl = document.getElementById('upbtn-' + cat);
+    if (btnEl) btnEl.disabled = false;
+    const msg = ok > 0
+      ? `✓ ${ok} archivo${ok > 1 ? 's' : ''} subido${ok > 1 ? 's' : ''} correctamente${errors > 0 ? ` (${errors} con error)` : ''}`
+      : `${errors} archivo${errors > 1 ? 's' : ''} con error`;
+    showMsg('upmsg-' + cat, msg, ok > 0 ? 'success' : 'error');
+    return;
+  }
+  const file     = files[idx];
+  const statusEl = document.getElementById(`upstatus-${cat}-${idx}`);
+  const progEl   = document.getElementById(`upprog-${cat}-${idx}`);
+  const fillEl   = document.getElementById(`upfill-${cat}-${idx}`);
+  if (statusEl) { statusEl.className = 'up-file-status uploading'; statusEl.textContent = '0%'; }
+  if (progEl)   progEl.style.display = '';
+
+  const fd = new FormData();
+  fd.append('category', uploadCat);
+  fd.append('file', file);
+  const xhr = new XMLHttpRequest();
+  xhr.upload.addEventListener('progress', e => {
+    if (!e.lengthComputable) return;
+    const pct = Math.round(e.loaded / e.total * 100);
+    if (statusEl) statusEl.textContent = pct + '%';
+    if (fillEl)   fillEl.style.width   = pct + '%';
+  });
+  xhr.addEventListener('load', () => {
+    let r = {};
+    try { r = JSON.parse(xhr.responseText); } catch {}
+    if (xhr.status === 200 && r.ok) {
+      if (statusEl) { statusEl.className = 'up-file-status done'; statusEl.textContent = '✓'; }
+      if (fillEl)   fillEl.style.width = '100%';
+      uploadNext(files, cat, uploadCat, idx + 1, errors);
+    } else {
+      if (statusEl) { statusEl.className = 'up-file-status error'; statusEl.textContent = '✗'; }
+      uploadNext(files, cat, uploadCat, idx + 1, errors + 1);
+    }
+  });
+  xhr.addEventListener('error', () => {
+    if (statusEl) { statusEl.className = 'up-file-status error'; statusEl.textContent = '✗'; }
+    uploadNext(files, cat, uploadCat, idx + 1, errors + 1);
+  });
+  xhr.open('POST', '/api/upload');
+  xhr.send(fd);
+}
+
+// ── Output ComfyUI ────────────────────────────────────────────────
+let OUTPUT_FILES = [];
+
+async function loadOutput() {
+  const el = document.getElementById('out-grid');
+  if (!el) return;
+  el.innerHTML = '<div class="empty"><span class="spin"></span></div>';
+  document.getElementById('out-count').textContent = '';
+  OUTPUT_FILES = await api('/api/comfy/output');
+  if (!OUTPUT_FILES.length) {
+    el.innerHTML = '<div class="empty">No hay archivos en /workspace/ComfyUI/output</div>';
+    return;
+  }
+  el.innerHTML = OUTPUT_FILES.map((f, i) => `
+    <div class="out-item selected" id="out-item-${i}" onclick="toggleOutput(${i})">
+      <input type="checkbox" class="out-check" id="out-chk-${i}" checked onclick="event.stopPropagation();toggleOutput(${i})">
+      <span class="out-name" title="${escHtml(f.name)}">${escHtml(f.name)}</span>
+      <span class="out-size">${f.size_str}</span>
+    </div>`).join('');
+  updateOutCount();
+}
+
+function toggleOutput(i) {
+  const chk  = document.getElementById('out-chk-' + i);
+  const item = document.getElementById('out-item-' + i);
+  if (!chk) return;
+  chk.checked = !chk.checked;
+  if (item) item.classList.toggle('selected', chk.checked);
+  updateOutCount();
+}
+
+function selectAllOutput(sel) {
+  OUTPUT_FILES.forEach((_, i) => {
+    const chk  = document.getElementById('out-chk-' + i);
+    const item = document.getElementById('out-item-' + i);
+    if (chk)  chk.checked = sel;
+    if (item) item.classList.toggle('selected', sel);
+  });
+  updateOutCount();
+}
+
+function updateOutCount() {
+  const sel = OUTPUT_FILES.filter((_, i) => document.getElementById('out-chk-' + i)?.checked).length;
+  const el  = document.getElementById('out-count');
+  if (el) el.textContent = `${sel} / ${OUTPUT_FILES.length} seleccionados`;
+}
+
+async function downloadOutput() {
+  const selected = OUTPUT_FILES
+    .filter((_, i) => document.getElementById('out-chk-' + i)?.checked)
+    .map(f => f.name);
+  const msgEl = document.getElementById('out-msg');
+  if (!selected.length) {
+    msgEl.innerHTML = '<div class="error-msg mt">Selecciona al menos un archivo</div>';
+    return;
+  }
+  let zipName = (document.getElementById('zip-name').value.trim() || 'comfyui_output');
+  if (!zipName.endsWith('.zip')) zipName += '.zip';
+  msgEl.innerHTML = '<div class="mt" style="color:var(--muted)"><span class="spin"></span> Preparando ZIP…</div>';
+  try {
+    const r = await fetch('/api/comfy/output/zip', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ files: selected, zip_filename: zipName }),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      msgEl.innerHTML = `<div class="error-msg mt">${escHtml(err.error || 'Error desconocido')}</div>`;
+      return;
+    }
+    const blob = await r.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = zipName;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    msgEl.innerHTML = `<div class="success-msg mt">✓ Descargando ${escHtml(zipName)} (${selected.length} archivos)</div>`;
+  } catch (e) {
+    msgEl.innerHTML = `<div class="error-msg mt">${escHtml(e.message)}</div>`;
+  }
+}
+
+// ── Configs ───────────────────────────────────────────────────────
+let CURRENT_CONFIG = null;
+
+async function loadConfigs() {
+  const el = document.getElementById('cfg-file-list');
+  if (!el) return;
+  el.innerHTML = '<div class="empty"><span class="spin"></span></div>';
+  const files = await api('/api/configs');
+  if (!files.length) {
+    el.innerHTML = '<div class="empty">No hay configuraciones en /workspace/training/config<br><span style="font-size:11px;color:var(--muted2)">Sube archivos .json o .txt desde Archivos → Configs</span></div>';
+    return;
+  }
+  el.innerHTML = files.map(f => `
+    <div class="cfg-item" onclick="openConfigEditor('${escHtml(f.name)}')">
+      <span class="cfg-name">${escHtml(f.name)}</span>
+      <span class="cfg-size">${f.size_str}</span>
+      <button class="btn sm" onclick="event.stopPropagation();openConfigEditor('${escHtml(f.name)}')">Editar →</button>
+    </div>`).join('');
+}
+
+async function openConfigEditor(filename) {
+  CURRENT_CONFIG = filename;
+  document.getElementById('cfg-list-view').style.display   = 'none';
+  document.getElementById('cfg-editor-view').style.display = '';
+  document.getElementById('cfg-editor-filename').textContent = filename;
+  document.getElementById('cfg-editor-msg').innerHTML = '';
+  document.getElementById('cfg-textarea').value = 'Cargando…';
+  const data = await api(`/api/configs/${encodeURIComponent(filename)}`);
+  if (data.error) {
+    document.getElementById('cfg-editor-msg').innerHTML = `<div class="error-msg">${escHtml(data.error)}</div>`;
+    return;
+  }
+  document.getElementById('cfg-textarea').value = data.content;
+}
+
+async function saveConfig() {
+  if (!CURRENT_CONFIG) return;
+  const content = document.getElementById('cfg-textarea').value;
+  const msgEl   = document.getElementById('cfg-editor-msg');
+  const r = await api(`/api/configs/${encodeURIComponent(CURRENT_CONFIG)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ content }),
+  });
+  if (r.ok) {
+    msgEl.innerHTML = '<div class="success-msg">✓ Guardado</div>';
+    setTimeout(() => { msgEl.innerHTML = ''; }, 2000);
+  } else {
+    msgEl.innerHTML = `<div class="error-msg">${escHtml(r.error || 'Error al guardar')}</div>`;
+  }
+}
+
+function closeConfigEditor() {
+  CURRENT_CONFIG = null;
+  document.getElementById('cfg-list-view').style.display   = '';
+  document.getElementById('cfg-editor-view').style.display = 'none';
+  loadConfigs();
+}
+
+async function deleteConfig() {
+  if (!CURRENT_CONFIG) return;
+  if (!confirm(`¿Borrar ${CURRENT_CONFIG}? Esta acción no se puede deshacer.`)) return;
+  const r = await api(`/api/configs/${encodeURIComponent(CURRENT_CONFIG)}`, { method: 'DELETE' });
+  if (r.ok) {
+    closeConfigEditor();
+  } else {
+    document.getElementById('cfg-editor-msg').innerHTML = `<div class="error-msg">${escHtml(r.error || 'Error al borrar')}</div>`;
+  }
 }
 
 // ── Init ──────────────────────────────────────────────────────────

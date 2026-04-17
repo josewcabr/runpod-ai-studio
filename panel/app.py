@@ -3,15 +3,18 @@
 RunPod AI Studio — Control Panel Backend
 Flask app que gestiona servicios, descargas y modelos.
 """
+import io
 import os
 import signal
 import threading
 import subprocess
 import uuid
 import time
+import zipfile
 from collections import deque
 from pathlib import Path
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory, send_file
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__, static_folder='static')
 
@@ -21,6 +24,8 @@ MODELS_DIR = WORKSPACE / 'models'
 LOGS_DIR   = WORKSPACE / 'logs'
 PIDS_DIR   = LOGS_DIR / 'pids'
 PIDS_DIR.mkdir(parents=True, exist_ok=True)
+CONFIG_DIR   = WORKSPACE / 'training' / 'config'
+COMFY_OUTPUT = WORKSPACE / 'ComfyUI' / 'output'
 
 # ── Definición de servicios ───────────────────────────────────────
 # group 'exclusive' → solo uno puede estar activo en :7860
@@ -671,6 +676,138 @@ def api_tokens():
         if val:
             os.environ[key] = val
     return jsonify({'ok': True})
+
+# ── Upload de archivos ────────────────────────────────────────────
+UPLOAD_ACCEPT = {
+    'loras':       ('.safetensors',),
+    'checkpoints': ('.safetensors',),
+    'config':      ('.json', '.txt'),
+}
+
+@app.route('/api/upload', methods=['POST'])
+def api_upload():
+    category = request.form.get('category', '')
+    if category not in UPLOAD_ACCEPT:
+        return jsonify({'error': 'Categoría no válida'}), 400
+    if 'file' not in request.files:
+        return jsonify({'error': 'Sin archivo'}), 400
+
+    f        = request.files['file']
+    filename = secure_filename(f.filename or '')
+    if not filename:
+        return jsonify({'error': 'Nombre de archivo inválido'}), 400
+
+    exts = UPLOAD_ACCEPT[category]
+    if not any(filename.lower().endswith(e) for e in exts):
+        return jsonify({'error': f'Solo se permiten archivos {", ".join(exts)}'}), 400
+
+    dest_dir = CONFIG_DIR if category == 'config' else MODELS_DIR / category
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    f.save(str(dest_dir / filename))
+    return jsonify({'ok': True, 'filename': filename})
+
+# ── Configuraciones ────────────────────────────────────────────────
+@app.route('/api/configs')
+def api_configs_list():
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    files = []
+    for p in sorted(CONFIG_DIR.iterdir()):
+        if p.is_file() and p.suffix.lower() in ('.json', '.txt'):
+            sz = p.stat().st_size
+            files.append({'name': p.name, 'size': sz, 'size_str': _human(sz)})
+    return jsonify(files)
+
+@app.route('/api/configs/<path:filename>')
+def api_config_read(filename):
+    filename = secure_filename(filename)
+    path     = (CONFIG_DIR / filename).resolve()
+    try:
+        path.relative_to(CONFIG_DIR.resolve())
+    except ValueError:
+        return jsonify({'error': 'Path no permitido'}), 403
+    if not path.exists():
+        return jsonify({'error': 'Archivo no encontrado'}), 404
+    try:
+        return jsonify({'content': path.read_text(encoding='utf-8', errors='replace'), 'filename': filename})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/configs/<path:filename>', methods=['PUT'])
+def api_config_write(filename):
+    filename = secure_filename(filename)
+    path     = (CONFIG_DIR / filename).resolve()
+    try:
+        path.relative_to(CONFIG_DIR.resolve())
+    except ValueError:
+        return jsonify({'error': 'Path no permitido'}), 403
+    content = (request.json or {}).get('content', '')
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        path.write_text(content, encoding='utf-8')
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/configs/<path:filename>', methods=['DELETE'])
+def api_config_delete(filename):
+    filename = secure_filename(filename)
+    path     = (CONFIG_DIR / filename).resolve()
+    try:
+        path.relative_to(CONFIG_DIR.resolve())
+    except ValueError:
+        return jsonify({'error': 'Path no permitido'}), 403
+    if not path.exists():
+        return jsonify({'error': 'Archivo no encontrado'}), 404
+    path.unlink()
+    return jsonify({'ok': True})
+
+# ── Output de ComfyUI ──────────────────────────────────────────────
+@app.route('/api/comfy/output')
+def api_comfy_output():
+    if not COMFY_OUTPUT.exists():
+        return jsonify([])
+    files = []
+    for p in sorted(COMFY_OUTPUT.iterdir(), reverse=True):
+        if p.is_file():
+            sz = p.stat().st_size
+            files.append({'name': p.name, 'size': sz, 'size_str': _human(sz)})
+    return jsonify(files)
+
+@app.route('/api/comfy/output/zip', methods=['POST'])
+def api_comfy_output_zip():
+    data  = request.json or {}
+    names = data.get('files', [])
+    if not names:
+        return jsonify({'error': 'Sin archivos seleccionados'}), 400
+
+    root  = COMFY_OUTPUT.resolve()
+    paths = []
+    for name in names:
+        safe = secure_filename(name)
+        if not safe:
+            continue
+        p = (COMFY_OUTPUT / safe).resolve()
+        try:
+            p.relative_to(root)
+        except ValueError:
+            return jsonify({'error': f'Path no permitido: {name}'}), 403
+        if not p.is_file():
+            return jsonify({'error': f'No encontrado: {name}'}), 404
+        paths.append(p)
+
+    if not paths:
+        return jsonify({'error': 'Sin archivos válidos'}), 400
+
+    zip_name = secure_filename(data.get('zip_filename', 'comfyui_output.zip'))
+    if not zip_name.endswith('.zip'):
+        zip_name += '.zip'
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_STORED) as zf:
+        for p in paths:
+            zf.write(p, p.name)
+    buf.seek(0)
+    return send_file(buf, mimetype='application/zip', as_attachment=True, download_name=zip_name)
 
 # ── Entrypoint ────────────────────────────────────────────────────
 if __name__ == '__main__':
