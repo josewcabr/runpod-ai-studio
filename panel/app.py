@@ -17,6 +17,7 @@ from flask import Flask, jsonify, request, send_from_directory, send_file
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__, static_folder='static')
+app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024 * 1024  # 20 GB — safetensors pueden pesar mucho
 
 # ── Paths ─────────────────────────────────────────────────────────
 WORKSPACE  = Path('/workspace')
