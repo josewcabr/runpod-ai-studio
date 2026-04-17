@@ -806,19 +806,37 @@ function svcStatusHTML(status) {
 }
 
 function svcCard(sid, svc) {
-  const running  = svc.status === 'running';
-  const cls      = running ? 'running' : (svc.status === 'starting' ? 'starting' : '');
-  const openBtn  = running
-    ? `<button class="btn sm" onclick="openPort(${svc.port})">Abrir →</button>` : '';
-  const stopBtn  = running
-    ? `<button class="btn sm danger" onclick="svcStop('${sid}')">Parar</button>` : '';
-  const startBtn = !running
-    ? `<button class="btn sm primary" onclick="svcStart('${sid}')">Lanzar</button>` : '';
-  const restartBtn = running
-    ? `<button class="btn sm" onclick="svcRestart('${sid}')">Reiniciar</button>` : '';
+  const running    = svc.status === 'running';
+  const installed  = svc.installed !== false;   // undefined → true (otros servicios siempre instalados)
+  const installing = svc.installing === true;
+
+  const cls        = running ? 'running' : (svc.status === 'starting' ? 'starting' : '');
+  const openBtn    = running ? `<button class="btn sm" onclick="openPort(${svc.port})">Abrir →</button>` : '';
+  const stopBtn    = running ? `<button class="btn sm danger" onclick="svcStop('${sid}')">Parar</button>` : '';
+  const restartBtn = running ? `<button class="btn sm" onclick="svcRestart('${sid}')">Reiniciar</button>` : '';
+
+  let startBtn = '';
+  if (!running) {
+    if (!installed && installing) {
+      startBtn = `<button class="btn sm" disabled>Instalando...</button>`;
+    } else if (!installed) {
+      startBtn = `<button class="btn sm primary" onclick="installSvc('${sid}')">Instalar</button>`;
+    } else {
+      startBtn = `<button class="btn sm primary" onclick="svcStart('${sid}')">Lanzar</button>`;
+    }
+  }
+
+  let statusBadge;
+  if (!installed && installing) {
+    statusBadge = `<span class="svc-status starting">instalando...</span>`;
+  } else if (!installed) {
+    statusBadge = `<span class="svc-status stopped">no instalado</span>`;
+  } else {
+    statusBadge = svcStatusHTML(svc.status);
+  }
 
   let note = '';
-  if (!running && svc.group === 'exclusive') {
+  if (!running && installed && svc.group === 'exclusive') {
     const runningExcl = Object.entries(STATUS.services || {})
       .filter(([k, v]) => v.group === 'exclusive' && v.status === 'running' && k !== sid)
       .map(([, v]) => v.name)[0];
@@ -832,13 +850,17 @@ function svcCard(sid, svc) {
           <div class="svc-name">${svc.name}</div>
           <div class="svc-port">:${svc.port}</div>
         </div>
-        ${svcStatusHTML(svc.status)}
+        ${statusBadge}
       </div>
       <div class="svc-actions">
         ${startBtn}${openBtn}${restartBtn}${stopBtn}
       </div>
       ${note}
     </div>`;
+}
+
+async function installSvc(sid) {
+  await post(`/api/services/${sid}/install`);
 }
 
 function updateDashboard() {

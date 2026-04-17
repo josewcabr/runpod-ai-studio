@@ -79,13 +79,55 @@ SERVICES = {
 
 TENSORBOARD_CMD = 'tensorboard --logdir=/workspace/logs --port=6006 --host=0.0.0.0'
 
+FORGE_DIR = WORKSPACE / 'stable-diffusion-webui-forge'
+
 # Runtime: handles de procesos en memoria
 _procs       = {}    # service_id → Popen
 _tb_proc     = None
 _log_handles = {}    # sid → file handle abierto
 
-_state_lock = threading.Lock()   # protege _procs, _tb_proc y _log_handles
-_dl_lock    = threading.Lock()   # protege DOWNLOADS
+_state_lock      = threading.Lock()   # protege _procs, _tb_proc y _log_handles
+_dl_lock         = threading.Lock()   # protege DOWNLOADS
+_forge_inst_lock = threading.Lock()   # protege _forge_installing
+_forge_installing = False
+
+def _forge_installed() -> bool:
+    return FORGE_DIR.exists()
+
+def _install_forge():
+    """Clona Forge y crea symlinks de modelos. Corre en hilo de fondo."""
+    global _forge_installing
+    WEBUI_MAP = {
+        'Stable-diffusion': 'checkpoints',
+        'Lora':             'loras',
+        'VAE':              'vae',
+        'embeddings':       'embeddings',
+        'ControlNet':       'controlnet',
+        'ESRGAN':           'upscalers',
+        'Hypernetwork':     'hypernetworks',
+    }
+    try:
+        subprocess.run(
+            ['git', 'clone', '--depth', '1',
+             'https://github.com/lllyasviel/stable-diffusion-webui-forge.git'],
+            cwd=str(WORKSPACE),
+            check=True,
+        )
+        models_dir = FORGE_DIR / 'models'
+        models_dir.mkdir(parents=True, exist_ok=True)
+        for dst, src in WEBUI_MAP.items():
+            link = models_dir / dst
+            if link.is_symlink() or link.is_file():
+                link.unlink()
+            elif link.exists():
+                import shutil; shutil.rmtree(str(link))
+            link.symlink_to(MODELS_DIR / src)
+        print('[install_forge] Forge instalado y symlinks creados')
+    except Exception as e:
+        print(f'[install_forge] error: {e}')
+    finally:
+        with _forge_inst_lock:
+            _forge_installing = False
 
 # ── PID helpers ───────────────────────────────────────────────────
 def _pid_file(sid: str) -> Path:
@@ -375,16 +417,21 @@ def index():
 @app.route('/api/status')
 def api_status():
     sys = _system_info()
-    services = {
-        sid: {
-            'name':           svc['name'],
-            'status':         _status(sid),
-            'port':           svc['port'],
-            'group':          svc['group'],
+    services = {}
+    for sid, svc in SERVICES.items():
+        entry = {
+            'name':            svc['name'],
+            'status':          _status(sid),
+            'port':            svc['port'],
+            'group':           svc['group'],
             'has_tensorboard': svc.get('tensorboard', False),
         }
-        for sid, svc in SERVICES.items()
-    }
+        if sid == 'forge':
+            with _forge_inst_lock:
+                installing = _forge_installing
+            entry['installed']  = _forge_installed()
+            entry['installing'] = installing
+        services[sid] = entry
     with _dl_lock:
         active_dl = sum(1 for d in DOWNLOADS.values() if d['status'] == 'downloading')
     return jsonify({
@@ -403,9 +450,23 @@ def api_status():
 def api_start(sid):
     if sid not in SERVICES:
         return jsonify({'error': 'Servicio desconocido'}), 404
+    if sid == 'forge' and not _forge_installed():
+        return jsonify({'error': 'Forge no está instalado'}), 400
     if _status(sid) == 'running':
         return jsonify({'error': f'{SERVICES[sid]["name"]} ya está corriendo'}), 400
     threading.Thread(target=_start, args=(sid,), daemon=True).start()
+    return jsonify({'ok': True})
+
+@app.route('/api/services/forge/install', methods=['POST'])
+def api_forge_install():
+    global _forge_installing
+    if _forge_installed():
+        return jsonify({'error': 'Forge ya está instalado'}), 400
+    with _forge_inst_lock:
+        if _forge_installing:
+            return jsonify({'error': 'Instalación ya en curso'}), 400
+        _forge_installing = True
+    threading.Thread(target=_install_forge, daemon=True).start()
     return jsonify({'ok': True})
 
 @app.route('/api/services/<sid>/stop', methods=['POST'])

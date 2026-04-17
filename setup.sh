@@ -273,19 +273,7 @@ else
 fi
 
 
-
-# ── 5. Forge ─────────────────────────────────────────────────────
-section "Forge"
-cd "$WORKSPACE" || { log "FATAL: No se puede acceder a $WORKSPACE"; exit 1; }
-
-if [ ! -d "stable-diffusion-webui-forge" ]; then
-    git clone --depth 1 https://github.com/lllyasviel/stable-diffusion-webui-forge.git
-    log "✅ Clonado (se auto-instala en el primer arranque)"
-else
-    log "⏭  Ya clonado"
-fi
-
-# ── 6. Estructura de modelos y symlinks ───────────────────────────
+# ── 5. Estructura de modelos y symlinks ───────────────────────────
 section "Modelos y symlinks"
 mkdir -p "$MODELS_DIR"/{checkpoints,loras,vae,clip,unet,controlnet,embeddings,upscalers,hypernetworks}
 mkdir -p "$WORKSPACE/training"/{images,output,config}
@@ -316,29 +304,30 @@ comfyui:
     loras: /workspace/training/output/loras/
 EOF
 
-# Forge
-declare -A WEBUI_MAP=(
-    ["Stable-diffusion"]="checkpoints"
-    ["Lora"]="loras"
-    ["VAE"]="vae"
-    ["embeddings"]="embeddings"
-    ["ControlNet"]="controlnet"
-    ["ESRGAN"]="upscalers"
-    ["Hypernetwork"]="hypernetworks"
-)
-for WEBUI_M in \
-    "$WORKSPACE/stable-diffusion-webui-forge/models"
-do
-    mkdir -p "$WEBUI_M"
-    for dst in "${!WEBUI_MAP[@]}"; do
-        rm -rf "${WEBUI_M:?}/$dst"
-        ln -sfn "$MODELS_DIR/${WEBUI_MAP[$dst]}" "$WEBUI_M/$dst"
+# Forge (solo si ya está instalado — se instala desde el panel)
+if [ -d "$WORKSPACE/stable-diffusion-webui-forge" ]; then
+    declare -A WEBUI_MAP=(
+        ["Stable-diffusion"]="checkpoints"
+        ["Lora"]="loras"
+        ["VAE"]="vae"
+        ["embeddings"]="embeddings"
+        ["ControlNet"]="controlnet"
+        ["ESRGAN"]="upscalers"
+        ["Hypernetwork"]="hypernetworks"
+    )
+    for WEBUI_M in "$WORKSPACE/stable-diffusion-webui-forge/models"; do
+        mkdir -p "$WEBUI_M"
+        for dst in "${!WEBUI_MAP[@]}"; do
+            rm -rf "${WEBUI_M:?}/$dst"
+            ln -sfn "$MODELS_DIR/${WEBUI_MAP[$dst]}" "$WEBUI_M/$dst"
+        done
     done
-done
+    log "✅ Symlinks Forge creados"
+fi
 
 log "✅ Symlinks creados — /workspace/models es la fuente única"
 
-# ── 7. Arrancar servicios con tmux ───────────────────────────────
+# ── 6. Arrancar servicios con tmux ───────────────────────────────
 section "Arrancando servicios"
 
 tmux kill-server 2>/dev/null || true
