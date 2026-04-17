@@ -220,32 +220,50 @@ fi
 if ! is_done "$WORKSPACE/ComfyUI" || [ ! -d "$WORKSPACE/ComfyUI/venv" ]; then
     cd ComfyUI || { log "FATAL: No se puede acceder a ComfyUI"; exit 1; }
 
-    # Crear venv propio: necesario para instalar torch cu130 compatible con
-    # el driver CUDA 13.0 del pod (la imagen base trae cu121 que da CUDA not available)
     log "Creando venv de ComfyUI..."
     python3 -m venv venv
     # shellcheck disable=SC1091
     source venv/bin/activate
     pip install --upgrade pip wheel -q
 
-    # Instalar torch cu121 ANTES que requirements.txt para que no lo sobreescriba.
-    # - cu121: coincide con el toolkit CUDA 12.1.1 de la imagen base
-    # - 2.5.0: mínimo necesario para torch.library.custom_op (ComfyUI actual lo requiere)
+    # ── Constraints PRIMERO: protege torch de ser sobreescrito ────────────
+    # Sin esto, pip install -r requirements.txt reemplaza torch+cu121 con un
+    # torch CPU-only desde PyPI → CUDA not available → crash en model_management.
+    cat > /tmp/comfy_constraints.txt <<'EOF'
+torch==2.5.1+cu121
+torchvision==0.20.1+cu121
+torchaudio==2.5.1+cu121
+EOF
+
+    # ── Stack PyTorch cu121 para ComfyUI ──────────────────────────────────
+    # cu121: coincide con el toolkit CUDA 12.1.1 de la imagen base y con
+    # cuDNN 8.x del sistema. cu124+ requiere cuDNN 9.x → CUDNN_STATUS_NOT_INITIALIZED.
+    # torch 2.5.1: tiene torch.library.custom_op que comfy_kitchen requiere.
     log "Instalando PyTorch cu121 para ComfyUI..."
     pip install -q \
-        torch==2.5.0+cu121 \
-        torchvision==0.20.0+cu121 \
-        torchaudio==2.5.0+cu121 \
+        torch==2.5.1+cu121 \
+        torchvision==0.20.1+cu121 \
+        torchaudio==2.5.1+cu121 \
         --index-url https://download.pytorch.org/whl/cu121
 
+    log "Verificando PyTorch..."
+    python -c "import torch; print(f'Torch: {torch.__version__}, CUDA: {torch.cuda.is_available()}')" \
+        2>&1 | tee -a "$LOG_FILE" || true
+
+    # ── requirements.txt de ComfyUI (filtrando torch para no sobreescribirlo) ─
     log "Instalando dependencias de ComfyUI..."
-    pip install -q -r requirements.txt
+    grep -vE "^\s*(torch|torchvision|torchaudio)([ =><!]|$)" \
+        requirements.txt > /tmp/comfy_requirements_filtered.txt
+    pip install -q \
+        -r /tmp/comfy_requirements_filtered.txt \
+        -c /tmp/comfy_constraints.txt
 
     # ComfyUI Manager
     cd custom_nodes || { log "FATAL: No se puede acceder a ComfyUI/custom_nodes"; exit 1; }
     git clone --depth 1 https://github.com/ltdrdata/ComfyUI-Manager.git 2>/dev/null || \
         log "⚠  ComfyUI-Manager no se pudo clonar, continuando sin él"
-    [ -f ComfyUI-Manager/requirements.txt ] && pip install -q -r ComfyUI-Manager/requirements.txt
+    [ -f ComfyUI-Manager/requirements.txt ] && \
+        pip install -q -r ComfyUI-Manager/requirements.txt -c /tmp/comfy_constraints.txt
     deactivate
 
     mark_done "$WORKSPACE/ComfyUI"
@@ -271,6 +289,7 @@ fi
 section "Modelos y symlinks"
 mkdir -p "$MODELS_DIR"/{checkpoints,loras,vae,clip,unet,controlnet,embeddings,upscalers,hypernetworks}
 mkdir -p "$WORKSPACE/training"/{images,output,config}
+mkdir -p "$WORKSPACE/training/output/loras"
 
 # ComfyUI
 COMFY_M="$WORKSPACE/ComfyUI/models"
@@ -289,6 +308,13 @@ for dst in "${!COMFY_MAP[@]}"; do
     rm -rf "${COMFY_M:?}/$dst"
     ln -sfn "$MODELS_DIR/${COMFY_MAP[$dst]}" "$COMFY_M/$dst"
 done
+
+# extra_model_paths.yaml: ComfyUI busca loras también en training/output/loras.
+# Los .safetensors de Kohya aparecen en ComfyUI automáticamente al terminar el training.
+cat > "$WORKSPACE/ComfyUI/extra_model_paths.yaml" <<'EOF'
+comfyui:
+    loras: /workspace/training/output/loras/
+EOF
 
 # Forge
 declare -A WEBUI_MAP=(
