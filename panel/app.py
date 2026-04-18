@@ -28,6 +28,11 @@ PIDS_DIR.mkdir(parents=True, exist_ok=True)
 CONFIG_DIR   = WORKSPACE / 'training' / 'config'
 COMFY_OUTPUT = WORKSPACE / 'ComfyUI' / 'output'
 
+CAPTION_VENV    = Path("/workspace/training/venv-caption")
+CAPTION_SCRIPTS = Path(__file__).parent / "scripts"
+CAPTION_LOG     = Path("/workspace/logs/caption.log")
+CAPTION_INST_LOG = Path("/workspace/logs/caption-install.log")
+
 # ── Definición de servicios ───────────────────────────────────────
 # group 'exclusive' → solo uno puede estar activo en :7860
 # group 'independent' → convive con los demás
@@ -90,6 +95,12 @@ _state_lock      = threading.Lock()   # protege _procs, _tb_proc y _log_handles
 _dl_lock         = threading.Lock()   # protege DOWNLOADS
 _forge_inst_lock = threading.Lock()   # protege _forge_installing
 _forge_installing = False
+
+_caption_proc       = None   # running caption script process
+_caption_log_fh     = None   # log file handle for caption output
+_caption_lock       = threading.Lock()
+_caption_inst_proc  = None   # venv install process
+_caption_inst_log   = None   # log file handle for install output
 
 def _forge_installed() -> bool:
     return FORGE_DIR.exists()
@@ -870,6 +881,107 @@ def api_comfy_output_zip():
             zf.write(p, p.name)
     buf.seek(0)
     return send_file(buf, mimetype='application/zip', as_attachment=True, download_name=zip_name)
+
+# ── Caption endpoints ─────────────────────────────────────────────
+
+@app.route('/api/caption/venv-status')
+def caption_venv_status():
+    installed = (CAPTION_VENV / 'bin' / 'python').exists()
+    return jsonify({'installed': installed})
+
+
+@app.route('/api/caption/install', methods=['POST'])
+def caption_install():
+    global _caption_inst_proc, _caption_inst_log
+    with _caption_lock:
+        if _caption_inst_proc and _caption_inst_proc.poll() is None:
+            return jsonify({'error': 'Instalación ya en curso'}), 409
+        CAPTION_INST_LOG.parent.mkdir(parents=True, exist_ok=True)
+        _caption_inst_log = open(str(CAPTION_INST_LOG), 'w', buffering=1)
+        cmd = (
+            f"python3 -m venv {CAPTION_VENV} && "
+            f"{CAPTION_VENV}/bin/pip install --upgrade pip && "
+            f"{CAPTION_VENV}/bin/pip install "
+            f"torch torchvision --index-url https://download.pytorch.org/whl/cu121 && "
+            f"{CAPTION_VENV}/bin/pip install "
+            f"transformers onnxruntime-gpu huggingface_hub pandas numpy Pillow && "
+            f"echo 'INSTALACIÓN COMPLETADA'"
+        )
+        _caption_inst_proc = subprocess.Popen(
+            ['bash', '-c', cmd],
+            stdout=_caption_inst_log, stderr=subprocess.STDOUT
+        )
+    return jsonify({'ok': True})
+
+
+@app.route('/api/caption/install-log')
+def caption_install_log():
+    global _caption_inst_proc
+    lines_n = min(int(request.args.get('lines', 100)), 500)
+    running = bool(_caption_inst_proc and _caption_inst_proc.poll() is None)
+    done    = False
+    error   = False
+    lines   = []
+    if CAPTION_INST_LOG.exists():
+        all_lines = CAPTION_INST_LOG.read_text(encoding='utf-8', errors='replace').splitlines()
+        lines = all_lines[-lines_n:]
+        if all_lines:
+            done  = 'INSTALACIÓN COMPLETADA' in all_lines[-1]
+            error = (_caption_inst_proc is not None and
+                     _caption_inst_proc.poll() not in (None, 0))
+    return jsonify({'lines': lines, 'running': running, 'done': done, 'error': error})
+
+
+@app.route('/api/caption/run', methods=['POST'])
+def caption_run():
+    global _caption_proc, _caption_log_fh
+    data   = request.get_json(force=True) or {}
+    tool   = data.get('tool', '')
+    prefix = data.get('prefix', '').strip()
+    if tool not in ('blip', 'wd14'):
+        return jsonify({'error': 'tool debe ser blip o wd14'}), 400
+    venv_python = CAPTION_VENV / 'bin' / 'python'
+    if not venv_python.exists():
+        return jsonify({'error': 'Venv no instalado'}), 409
+    script = CAPTION_SCRIPTS / f'script_{tool}.py'
+    if not script.exists():
+        return jsonify({'error': f'Script no encontrado: {script}'}), 500
+    with _caption_lock:
+        if _caption_proc and _caption_proc.poll() is None:
+            return jsonify({'error': 'Ya hay un proceso de captioning en curso'}), 409
+        CAPTION_LOG.parent.mkdir(parents=True, exist_ok=True)
+        if _caption_log_fh:
+            try: _caption_log_fh.close()
+            except: pass
+        _caption_log_fh = open(str(CAPTION_LOG), 'w', buffering=1)
+        cmd = [str(venv_python), str(script), '--prefix', prefix]
+        _caption_proc = subprocess.Popen(
+            cmd, stdout=_caption_log_fh, stderr=subprocess.STDOUT
+        )
+    return jsonify({'ok': True})
+
+
+@app.route('/api/caption/log')
+def caption_log():
+    global _caption_proc
+    lines_n = min(int(request.args.get('lines', 100)), 500)
+    running = bool(_caption_proc and _caption_proc.poll() is None)
+    lines   = []
+    if CAPTION_LOG.exists():
+        all_lines = CAPTION_LOG.read_text(encoding='utf-8', errors='replace').splitlines()
+        lines = all_lines[-lines_n:]
+    return jsonify({'lines': lines, 'running': running})
+
+
+@app.route('/api/caption/stop', methods=['POST'])
+def caption_stop():
+    global _caption_proc
+    with _caption_lock:
+        if _caption_proc and _caption_proc.poll() is None:
+            _caption_proc.terminate()
+            return jsonify({'ok': True})
+    return jsonify({'ok': False, 'error': 'No hay proceso activo'})
+
 
 # ── Entrypoint ────────────────────────────────────────────────────
 if __name__ == '__main__':

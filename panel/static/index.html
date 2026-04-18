@@ -418,6 +418,12 @@ btn, .btn {
       </div>
     </div>
     <div class="nav-group">
+      <div class="nav-label">Herramientas</div>
+      <div class="nav-item" data-sec="captions">
+        <span class="nav-icon">✍</span> Captions
+      </div>
+    </div>
+    <div class="nav-group">
       <div class="nav-label">Sistema</div>
       <div class="nav-item" data-sec="tokens">
         <span class="nav-icon">🔑</span> Tokens
@@ -705,6 +711,63 @@ btn, .btn {
           <textarea id="cfg-textarea" class="cfg-textarea" spellcheck="false"></textarea>
         </div>
 
+      </div>
+    </div>
+
+    <!-- ─── CAPTIONS ───────────────────────────────────────────── -->
+    <div class="section" id="sec-captions">
+      <div class="card">
+        <div class="card-title">Captions de imágenes</div>
+        <p style="color:var(--muted);font-size:12px;margin-bottom:14px;">
+          Genera archivos de caption <code style="color:var(--accent)">.txt</code> para cada imagen en
+          <code style="color:var(--accent)">/workspace/training/dataset</code> usando BLIP o WD14.
+        </p>
+
+        <!-- Venv status -->
+        <div id="cap-venv-status" style="margin-bottom:14px;">
+          <span class="spin"></span>
+        </div>
+
+        <!-- Install area (shown when not installed) -->
+        <div id="cap-install-area" style="display:none">
+          <button class="btn primary" id="cap-install-btn" onclick="capInstall()">Instalar entorno</button>
+          <div id="cap-install-log-wrap" style="display:none;margin-top:12px;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+              <span style="font-size:12px;color:var(--muted)">Instalando entorno…</span>
+              <span class="spin" id="cap-install-spin"></span>
+            </div>
+            <div class="log-box" id="cap-install-log" style="height:200px;">(esperando log…)</div>
+          </div>
+          <div id="cap-install-msg"></div>
+        </div>
+
+        <!-- Caption buttons (shown when installed) -->
+        <div id="cap-run-area" style="display:none">
+          <div class="row" style="margin-bottom:14px;">
+            <button class="btn primary" id="cap-btn-blip" onclick="capOpenModal('blip')">Captions con BLIP</button>
+            <button class="btn primary" id="cap-btn-wd14" onclick="capOpenModal('wd14')">Captions con WD14</button>
+            <button class="btn danger sm" id="cap-stop-btn" style="display:none;margin-left:auto;" onclick="capStop()">Detener</button>
+          </div>
+          <div id="cap-run-msg"></div>
+          <div id="cap-log-wrap" style="display:none;margin-top:8px;">
+            <div class="log-box" id="cap-log" style="height:280px;">(sin output todavía)</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ─── MODAL CAPTIONS ──────────────────────────────────────── -->
+    <div id="cap-modal-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:1000;align-items:center;justify-content:center;">
+      <div style="background:var(--surf);border:1px solid var(--border2);border-radius:var(--r-lg);padding:24px;width:360px;max-width:90vw;">
+        <div style="font-size:14px;font-weight:600;margin-bottom:6px;" id="cap-modal-title">Generar captions</div>
+        <p style="color:var(--muted);font-size:12px;margin-bottom:14px;">Trigger word (recomendado poner aquí el token)</p>
+        <div class="input-label">Prefix / trigger word</div>
+        <input class="input" id="cap-prefix-input" placeholder="ej: ohwx person" style="margin-bottom:16px;">
+        <div style="display:flex;gap:8px;justify-content:flex-end;">
+          <button class="btn" onclick="capCloseModal()">Cancelar</button>
+          <button class="btn primary" onclick="capGenerate()">Generar</button>
+        </div>
       </div>
     </div>
 
@@ -1497,6 +1560,188 @@ async function deleteConfig() {
     document.getElementById('cfg-editor-msg').innerHTML = `<div class="error-msg">${escHtml(r.error || 'Error al borrar')}</div>`;
   }
 }
+
+// ── Caption section ───────────────────────────────────────────────
+let _capInstallPollTimer = null;
+let _capLogPollTimer     = null;
+let _capActiveTool       = null;   // 'blip' | 'wd14'
+
+async function capCheckVenv() {
+  const statusEl = document.getElementById('cap-venv-status');
+  if (!statusEl) return;
+  try {
+    const data = await api('/api/caption/venv-status');
+    if (data.installed) {
+      statusEl.innerHTML = '<span class="svc-status running" style="font-size:12px;">Entorno listo</span>';
+      document.getElementById('cap-install-area').style.display = 'none';
+      document.getElementById('cap-run-area').style.display     = '';
+    } else {
+      statusEl.innerHTML = '<div class="error-msg" style="background:var(--yellow-bg);border-color:var(--yellow);color:var(--yellow);">⚠ Entorno de captions no instalado</div>';
+      document.getElementById('cap-install-area').style.display = '';
+      document.getElementById('cap-run-area').style.display     = 'none';
+    }
+  } catch (e) {
+    statusEl.innerHTML = '<div class="error-msg">Error al verificar el entorno</div>';
+  }
+}
+
+async function capInstall() {
+  const btn     = document.getElementById('cap-install-btn');
+  const logWrap = document.getElementById('cap-install-log-wrap');
+  const msgEl   = document.getElementById('cap-install-msg');
+  btn.disabled  = true;
+  msgEl.innerHTML = '';
+  logWrap.style.display = '';
+
+  try {
+    const r = await post('/api/caption/install');
+    if (!r.ok) {
+      msgEl.innerHTML = `<div class="error-msg mt">${escHtml(r.error || 'Error al iniciar la instalación')}</div>`;
+      btn.disabled = false;
+      return;
+    }
+  } catch (e) {
+    msgEl.innerHTML = `<div class="error-msg mt">${escHtml(e.message)}</div>`;
+    btn.disabled = false;
+    return;
+  }
+
+  _capInstallPollTimer = setInterval(capPollInstallLog, 2000);
+}
+
+async function capPollInstallLog() {
+  const logEl = document.getElementById('cap-install-log');
+  const msgEl = document.getElementById('cap-install-msg');
+  try {
+    const data = await api('/api/caption/install-log?lines=100');
+    if (logEl) {
+      logEl.textContent = (data.lines || []).join('\n') || '(sin output todavía)';
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+    if (data.done) {
+      clearInterval(_capInstallPollTimer);
+      _capInstallPollTimer = null;
+      const spinEl = document.getElementById('cap-install-spin');
+      if (spinEl) spinEl.style.display = 'none';
+      if (data.error) {
+        if (msgEl) msgEl.innerHTML = '<div class="error-msg mt">La instalación terminó con errores. Revisa el log.</div>';
+      } else {
+        if (msgEl) msgEl.innerHTML = '<div class="success-msg mt">✓ Entorno instalado correctamente</div>';
+        setTimeout(capCheckVenv, 800);
+      }
+    }
+  } catch (e) { /* silent */ }
+}
+
+function capOpenModal(tool) {
+  _capActiveTool = tool;
+  const titleEl = document.getElementById('cap-modal-title');
+  if (titleEl) titleEl.textContent = tool === 'blip' ? 'Captions con BLIP' : 'Captions con WD14';
+  const inp = document.getElementById('cap-prefix-input');
+  if (inp) inp.value = '';
+  const overlay = document.getElementById('cap-modal-overlay');
+  if (overlay) { overlay.style.display = 'flex'; }
+  if (inp) inp.focus();
+}
+
+function capCloseModal() {
+  const overlay = document.getElementById('cap-modal-overlay');
+  if (overlay) overlay.style.display = 'none';
+  _capActiveTool = null;
+}
+
+async function capGenerate() {
+  const tool   = _capActiveTool;
+  const prefix = (document.getElementById('cap-prefix-input').value || '').trim();
+  capCloseModal();
+  if (!tool) return;
+
+  const msgEl    = document.getElementById('cap-run-msg');
+  const logWrap  = document.getElementById('cap-log-wrap');
+  const logEl    = document.getElementById('cap-log');
+  const stopBtn  = document.getElementById('cap-stop-btn');
+  const blipBtn  = document.getElementById('cap-btn-blip');
+  const wd14Btn  = document.getElementById('cap-btn-wd14');
+
+  msgEl.innerHTML = '';
+  logWrap.style.display = '';
+  if (logEl) logEl.textContent = '(iniciando…)';
+  if (stopBtn)  stopBtn.style.display  = '';
+  if (blipBtn)  blipBtn.disabled = true;
+  if (wd14Btn)  wd14Btn.disabled = true;
+
+  try {
+    const r = await post('/api/caption/run', { tool, prefix });
+    if (!r.ok) {
+      msgEl.innerHTML = `<div class="error-msg mt">${escHtml(r.error || 'Error al iniciar captions')}</div>`;
+      if (stopBtn)  stopBtn.style.display  = 'none';
+      if (blipBtn)  blipBtn.disabled = false;
+      if (wd14Btn)  wd14Btn.disabled = false;
+      return;
+    }
+  } catch (e) {
+    msgEl.innerHTML = `<div class="error-msg mt">${escHtml(e.message)}</div>`;
+    if (stopBtn)  stopBtn.style.display  = 'none';
+    if (blipBtn)  blipBtn.disabled = false;
+    if (wd14Btn)  wd14Btn.disabled = false;
+    return;
+  }
+
+  if (_capLogPollTimer) clearInterval(_capLogPollTimer);
+  _capLogPollTimer = setInterval(capPollLog, 2000);
+}
+
+async function capPollLog() {
+  const logEl   = document.getElementById('cap-log');
+  const msgEl   = document.getElementById('cap-run-msg');
+  const stopBtn = document.getElementById('cap-stop-btn');
+  const blipBtn = document.getElementById('cap-btn-blip');
+  const wd14Btn = document.getElementById('cap-btn-wd14');
+  try {
+    const data = await api('/api/caption/log?lines=100');
+    if (logEl) {
+      logEl.textContent = (data.lines || []).join('\n') || '(sin output todavía)';
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+    if (!data.running) {
+      clearInterval(_capLogPollTimer);
+      _capLogPollTimer = null;
+      if (stopBtn)  stopBtn.style.display  = 'none';
+      if (blipBtn)  blipBtn.disabled = false;
+      if (wd14Btn)  wd14Btn.disabled = false;
+      if (msgEl && (data.lines || []).length) {
+        msgEl.innerHTML = '<div class="success-msg mt">✓ Captions generados</div>';
+      }
+    }
+  } catch (e) { /* silent */ }
+}
+
+async function capStop() {
+  const stopBtn = document.getElementById('cap-stop-btn');
+  if (stopBtn) stopBtn.disabled = true;
+  try {
+    await post('/api/caption/stop');
+  } catch (e) { /* silent */ }
+  if (_capLogPollTimer) {
+    clearInterval(_capLogPollTimer);
+    _capLogPollTimer = null;
+  }
+  if (stopBtn) { stopBtn.disabled = false; stopBtn.style.display = 'none'; }
+  const blipBtn = document.getElementById('cap-btn-blip');
+  const wd14Btn = document.getElementById('cap-btn-wd14');
+  if (blipBtn) blipBtn.disabled = false;
+  if (wd14Btn) wd14Btn.disabled = false;
+  const msgEl = document.getElementById('cap-run-msg');
+  if (msgEl) msgEl.innerHTML = '<div class="error-msg mt">Proceso detenido por el usuario</div>';
+}
+
+// Check venv on page load
+capCheckVenv();
+
+// Re-check when the captions section is activated via nav
+document.querySelector('[data-sec="captions"]').addEventListener('click', () => {
+  setTimeout(capCheckVenv, 100);
+});
 
 // ── Init ──────────────────────────────────────────────────────────
 // Vinculamos renderDownloads a la sección de descargas en el polling
