@@ -276,8 +276,8 @@ fi
 # ── 5. Estructura de modelos y symlinks ───────────────────────────
 section "Modelos y symlinks"
 mkdir -p "$MODELS_DIR"/{checkpoints,loras,vae,clip,unet,controlnet,embeddings,upscalers,hypernetworks}
-mkdir -p "$WORKSPACE/training"/{images,raw-images,output,config}
-mkdir -p "$WORKSPACE/training/raw-images"/{blip,wd14}
+mkdir -p "$WORKSPACE/training"/{images,raw-images,captions,output,config}
+mkdir -p "$WORKSPACE/training/captions"/{blip,wd14}
 mkdir -p "$WORKSPACE/training/output/loras"
 
 # ComfyUI
