@@ -375,7 +375,7 @@ python main.py --listen 0.0.0.0 --port 8188 --enable-cors-header \
 # ── Reinicio Jupyter (arranca mal en el primer boot, se reinicia al final del setup)
 pkill -f jupyter || true
 sleep 3
-tmux send-keys -t studio:jupyter "jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root --notebook-dir=/ 2>&1 | tee $LOGS_DIR/jupyter.log" Enter
+tmux send-keys -t studio:jupyter "jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root --NotebookApp.token='' --NotebookApp.password='' --notebook-dir=/ 2>&1 | tee $LOGS_DIR/jupyter.log" Enter
 
 section "Setup completado ✅"
 log "  Panel de control  → puerto 3000"
