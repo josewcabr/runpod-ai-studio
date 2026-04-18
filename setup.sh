@@ -276,7 +276,8 @@ fi
 # ── 5. Estructura de modelos y symlinks ───────────────────────────
 section "Modelos y symlinks"
 mkdir -p "$MODELS_DIR"/{checkpoints,loras,vae,clip,unet,controlnet,embeddings,upscalers,hypernetworks}
-mkdir -p "$WORKSPACE/training"/{images,output,config}
+mkdir -p "$WORKSPACE/training"/{images,raw-images,output,config}
+mkdir -p "$WORKSPACE/training/raw-images"/{blip,wd14}
 mkdir -p "$WORKSPACE/training/output/loras"
 
 # ComfyUI
@@ -370,6 +371,11 @@ python main.py --listen 0.0.0.0 --port 8188 --enable-cors-header \
 >> $LOGS_DIR/comfyui.log 2>&1 & echo \$! > $LOGS_DIR/pids/comfyui.pid; wait" Enter
 
 # Forge y Kohya se lanzan desde el panel (slot exclusivo :7860)
+
+# ── Reinicio Jupyter (arranca mal en el primer boot, se reinicia al final del setup)
+pkill -f jupyter || true
+sleep 3
+tmux send-keys -t studio:jupyter "jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root --notebook-dir=/ 2>&1 | tee $LOGS_DIR/jupyter.log" Enter
 
 section "Setup completado ✅"
 log "  Panel de control  → puerto 3000"
