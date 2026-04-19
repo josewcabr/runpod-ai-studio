@@ -5,6 +5,7 @@ Flask app que gestiona servicios, descargas y modelos.
 """
 import io
 import os
+import re
 import signal
 import threading
 import subprocess
