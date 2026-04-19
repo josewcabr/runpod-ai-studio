@@ -275,7 +275,7 @@ fi
 
 # ── 5. Estructura de modelos y symlinks ───────────────────────────
 section "Modelos y symlinks"
-mkdir -p "$MODELS_DIR"/{checkpoints,loras,vae,clip,unet,controlnet,embeddings,upscalers,hypernetworks}
+mkdir -p "$MODELS_DIR"/{checkpoints,loras,vae,clip,unet,controlnet,embeddings,upscalers,hypernetworks,audio_encoders,clip_vision,diffusion_models,gligen,latent_upscale_models,photomaker,style_models,text_encoders}
 mkdir -p "$WORKSPACE/training"/{images,raw-images,captions,output,config}
 mkdir -p "$WORKSPACE/training/captions"/{blip,wd14}
 mkdir -p "$WORKSPACE/training/output/loras"
@@ -292,6 +292,14 @@ declare -A COMFY_MAP=(
     ["controlnet"]="controlnet"
     ["embeddings"]="embeddings"
     ["upscale_models"]="upscalers"
+    ["audio_encoders"]="audio_encoders"
+    ["clip_vision"]="clip_vision"
+    ["diffusion_models"]="diffusion_models"
+    ["gligen"]="gligen"
+    ["latent_upscale_models"]="latent_upscale_models"
+    ["photomaker"]="photomaker"
+    ["style_models"]="style_models"
+    ["text_encoders"]="text_encoders"
 )
 for dst in "${!COMFY_MAP[@]}"; do
     rm -rf "${COMFY_M:?}/$dst"

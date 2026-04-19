@@ -321,6 +321,10 @@ CATEGORY_MAP = {
 }
 
 VALID_CATEGORIES = set(CATEGORY_MAP.values())
+VALID_CATEGORIES.update({
+    'audio_encoders', 'clip_vision', 'diffusion_models', 'gligen',
+    'latent_upscale_models', 'photomaker', 'style_models', 'text_encoders',
+})
 
 def _human(n: int) -> str:
     for u in ('B', 'KB', 'MB', 'GB'):
