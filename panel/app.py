@@ -672,7 +672,7 @@ def api_hf_download():
     m    = re.search(r'huggingface\.co/([^/\s?]+/[^/\s?]+)', raw)
     repo = m.group(1) if m else raw
 
-    url = f'https://huggingface.co/{repo}/resolve/main/{filename}'
+    url = re.sub(r'(?<!:)//', '/', f'https://huggingface.co/{repo}/resolve/main/{filename}')
     headers = {}
     token = os.environ.get('HF_TOKEN', '')
     if token:
