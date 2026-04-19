@@ -662,12 +662,15 @@ def api_hf_model():
 @app.route('/api/hf/download', methods=['POST'])
 def api_hf_download():
     data     = request.json or {}
-    repo     = data.get('repo', '').strip()
+    raw      = data.get('repo', '').strip()
     filename = data.get('filename', '').strip()
     category = data.get('category', 'checkpoints')
 
-    if not repo or not filename:
+    if not raw or not filename:
         return jsonify({'error': 'repo y filename requeridos'}), 400
+
+    m    = re.search(r'huggingface\.co/([^/\s?]+/[^/\s?]+)', raw)
+    repo = m.group(1) if m else raw
 
     url = f'https://huggingface.co/{repo}/resolve/main/{filename}'
     headers = {}
