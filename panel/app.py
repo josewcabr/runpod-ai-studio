@@ -909,7 +909,7 @@ def caption_install():
             f"python3 -m venv {CAPTION_VENV} && "
             f"{CAPTION_VENV}/bin/pip install --upgrade pip && "
             f"{CAPTION_VENV}/bin/pip install "
-            f"\"torch>=2.6.0\" torchvision --index-url https://download.pytorch.org/whl/cu121 && "
+            f"\"torch>=2.6.0\" torchvision --index-url https://download.pytorch.org/whl/cu124 && "
             f"{CAPTION_VENV}/bin/pip install "
             f"transformers onnxruntime-gpu huggingface_hub pandas numpy Pillow && "
             f"echo 'INSTALACIÓN COMPLETADA'"
