@@ -313,6 +313,9 @@ EOF
         -r /tmp/comfy_requirements_filtered.txt \
         -c /tmp/comfy_constraints.txt
 
+    # ── Dependencias extra para ComfyUI (gguf) ────────────────────────
+    pip install -q gguf
+
     # ── Fix PEP-585 bug en comfy_kitchen para PyTorch < 2.7 ───────────
     python3 -c "
 import re, glob
@@ -336,13 +339,15 @@ for path in glob.glob('$WORKSPACE/ComfyUI/venv/lib/python*/site-packages/comfy_k
     [ -f ComfyUI-Manager/requirements.txt ] && \
         pip install -q -r ComfyUI-Manager/requirements.txt -c /tmp/comfy_constraints.txt
 
-    # ComfyUI-GGUF (necesario para Krea 2 Turbo GGUF)
+    # ComfyUI-GGUF (necesario para Krea 2 Turbo GGUF y modelos cuantizados)
+    log "Instalando ComfyUI-GGUF..."
     if [ ! -d "ComfyUI-GGUF" ]; then
         git clone --depth 1 https://github.com/city96/ComfyUI-GGUF.git 2>/dev/null || \
             log "⚠  ComfyUI-GGUF no se pudo clonar, continuando sin él"
     fi
+    pip install -q gguf
     [ -f ComfyUI-GGUF/requirements.txt ] && \
-        pip install -q -r ComfyUI-GGUF/requirements.txt -c /tmp/comfy_constraints.txt
+        pip install -q -r ComfyUI-GGUF/requirements.txt -c /tmp/comfy_constraints.txt 2>/dev/null || true
 
     deactivate
     cd ../..
