@@ -1303,14 +1303,21 @@ def krea2_models():
                 if f.is_file() and f.suffix.lower() in DOWNLOADABLE_EXTS:
                     text_encoders.append(f.name)
 
-    img_dir = WORKSPACE / 'training' / 'images'
-    raw_dir = WORKSPACE / 'training' / 'raw-images'
-    has_images = img_dir.exists() and any(img_dir.iterdir())
-    has_raw = raw_dir.exists() and any(raw_dir.iterdir())
+    custom_dir_param = request.args.get('dir', '').strip()
+    if custom_dir_param:
+        target_dir = Path(custom_dir_param)
+        if not target_dir.is_absolute():
+            target_dir = WORKSPACE / target_dir
+        active_dir = target_dir
+    else:
+        img_dir = WORKSPACE / 'training' / 'images'
+        raw_dir = WORKSPACE / 'training' / 'raw-images'
+        has_images = img_dir.exists() and any(img_dir.iterdir())
+        has_raw = raw_dir.exists() and any(raw_dir.iterdir())
+        active_dir = img_dir if has_images or not has_raw else raw_dir
 
-    active_dir = img_dir if has_images or not has_raw else raw_dir
     img_count = 0
-    if active_dir.exists():
+    if active_dir.exists() and active_dir.is_dir():
         img_count = len([f for f in active_dir.iterdir() if f.is_file() and f.suffix.lower() in ('.png', '.jpg', '.jpeg', '.webp')])
 
     return jsonify({

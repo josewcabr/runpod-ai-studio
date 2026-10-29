@@ -783,6 +783,34 @@ btn, .btn {
 
         <!-- Training Form area (shown when installed) -->
         <div id="krea2-form-area" style="display:none;">
+
+          <!-- Resumen Visual de Pasos (Calculadora en Tiempo Real) -->
+          <div style="background:linear-gradient(135deg, rgba(99,102,241,0.12), rgba(168,85,247,0.08));border:1px solid rgba(99,102,241,0.35);border-radius:var(--r);padding:14px 18px;margin-bottom:16px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+              <div>
+                <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--accent);">
+                  ⚡ Planificador Visual de Pasos (Training Steps)
+                </div>
+                <div style="display:flex;align-items:baseline;gap:8px;margin-top:4px;">
+                  <span id="krea2-calc-total-steps" style="font-size:28px;font-weight:800;color:var(--text);font-family:var(--mono);letter-spacing:-0.5px;">1,560</span>
+                  <span style="font-size:14px;color:var(--text);font-weight:600;">pasos totales</span>
+                  <span style="color:var(--muted);font-size:13px;margin-left:6px;">(<strong id="krea2-calc-steps-epoch" style="color:var(--text);">260</strong> pasos / época)</span>
+                </div>
+                <div style="font-size:12px;color:var(--muted);margin-top:4px;font-family:var(--mono);">
+                  Fórmula: (<span id="krea2-calc-f-imgs" style="color:var(--text);font-weight:600;">26</span> fotos × <span id="krea2-calc-f-reps" style="color:var(--text);font-weight:600;">10</span> reps) ÷ batch <span id="krea2-calc-f-batch" style="color:var(--text);font-weight:600;">1</span> = <span id="krea2-calc-f-spe" style="color:var(--accent);font-weight:600;">260</span> pasos/época × <span id="krea2-calc-f-epochs" style="color:var(--text);font-weight:600;">6</span> épocas
+                </div>
+              </div>
+              <div style="text-align:right;">
+                <div id="krea2-calc-badge" style="display:inline-block;padding:6px 14px;border-radius:20px;font-size:12px;font-weight:600;background:rgba(34,197,94,0.15);color:#4ade80;border:1px solid rgba(34,197,94,0.3);">
+                  ✅ Rango Óptimo (1,000 - 2,200)
+                </div>
+                <div id="krea2-calc-est-time" style="font-size:11px;color:var(--muted);margin-top:5px;">
+                  Tiempo est. (RTX 4090): ~14 min
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:16px;margin-bottom:16px;">
             
             <!-- Bloque 1: Modelos Base -->
@@ -809,9 +837,30 @@ btn, .btn {
               </div>
               
               <div class="input-label">Directorio de imágenes</div>
-              <input class="input" id="krea2-img-dir" value="/workspace/training/images" style="margin-bottom:10px;">
+              <div style="display:flex;gap:6px;margin-bottom:10px;">
+                <input class="input" id="krea2-img-dir" value="/workspace/training/images" style="flex:1;" onchange="krea2CheckCustomDirImages()">
+                <button class="btn sm" onclick="krea2CheckCustomDirImages()" title="Contar imágenes del directorio" style="padding:0 10px;">🔍</button>
+              </div>
               
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+                <div>
+                  <div class="input-label" style="display:flex;justify-content:space-between;">
+                    <span>Nº Fotos</span>
+                    <span id="krea2-img-count-tag" style="color:var(--accent);font-size:10px;">auto</span>
+                  </div>
+                  <input class="input" type="number" id="krea2-img-count" value="26" min="1" max="10000" oninput="krea2UpdateStepCalc()">
+                </div>
+                <div>
+                  <div class="input-label">Repeticiones</div>
+                  <input class="input" type="number" id="krea2-repeats" value="10" min="1" max="100" oninput="krea2UpdateStepCalc()">
+                </div>
+              </div>
+
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+                <div>
+                  <div class="input-label">Batch Size</div>
+                  <input class="input" type="number" id="krea2-batch-size" value="1" min="1" max="16" oninput="krea2UpdateStepCalc()">
+                </div>
                 <div>
                   <div class="input-label">Resolución</div>
                   <select class="input" id="krea2-reso-select">
@@ -820,21 +869,11 @@ btn, .btn {
                     <option value="512,512">512 x 512</option>
                   </select>
                 </div>
-                <div>
-                  <div class="input-label">Repeticiones</div>
-                  <input class="input" type="number" id="krea2-repeats" value="1" min="1" max="100">
-                </div>
               </div>
 
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-                <div>
-                  <div class="input-label">Extensión Caption</div>
-                  <input class="input" id="krea2-caption-ext" value=".txt">
-                </div>
-                <div>
-                  <div class="input-label">Batch Size</div>
-                  <input class="input" type="number" id="krea2-batch-size" value="1" min="1" max="16">
-                </div>
+              <div>
+                <div class="input-label">Extensión Caption</div>
+                <input class="input" id="krea2-caption-ext" value=".txt">
               </div>
             </div>
 
@@ -875,7 +914,7 @@ btn, .btn {
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
                 <div>
                   <div class="input-label">Épocas (Epochs)</div>
-                  <input class="input" type="number" id="krea2-epochs" value="10" min="1" max="200">
+                  <input class="input" type="number" id="krea2-epochs" value="6" min="1" max="200" oninput="krea2UpdateStepCalc()">
                 </div>
                 <div>
                   <div class="input-label">LR Scheduler</div>
@@ -2200,14 +2239,106 @@ async function krea2LoadModels() {
     // Info dataset
     const infoEl = document.getElementById('krea2-dataset-info');
     if (infoEl) {
-      infoEl.textContent = `${data.image_count} imágenes detectadas en ${data.default_image_dir}`;
+      infoEl.textContent = `${data.image_count} fotos en ${data.default_image_dir}`;
     }
     const imgDirInput = document.getElementById('krea2-img-dir');
     if (imgDirInput && !imgDirInput.value) {
       imgDirInput.value = data.default_image_dir;
     }
+    const imgCountInput = document.getElementById('krea2-img-count');
+    if (imgCountInput && data.image_count > 0) {
+      imgCountInput.value = data.image_count;
+      const tag = document.getElementById('krea2-img-count-tag');
+      if (tag) tag.textContent = `${data.image_count} detectadas`;
+    }
+    krea2UpdateStepCalc();
   } catch (e) {
     console.error('Error cargando modelos para Krea 2:', e);
+  }
+}
+
+async function krea2CheckCustomDirImages() {
+  const dirInput = document.getElementById('krea2-img-dir');
+  const targetDir = dirInput ? dirInput.value.trim() : '';
+  if (!targetDir) return;
+  try {
+    const data = await api(`/api/train/krea2/models?dir=${encodeURIComponent(targetDir)}`);
+    const imgCountInput = document.getElementById('krea2-img-count');
+    const tag = document.getElementById('krea2-img-count-tag');
+    const infoEl = document.getElementById('krea2-dataset-info');
+    if (data && typeof data.image_count === 'number') {
+      if (imgCountInput && data.image_count > 0) {
+        imgCountInput.value = data.image_count;
+      }
+      if (tag) tag.textContent = `${data.image_count} detectadas`;
+      if (infoEl) infoEl.textContent = `${data.image_count} fotos en ${targetDir}`;
+    }
+    krea2UpdateStepCalc();
+  } catch (e) {
+    console.error('Error verificando imágenes de directorio:', e);
+  }
+}
+
+function krea2UpdateStepCalc() {
+  const imgs = Math.max(1, parseInt(document.getElementById('krea2-img-count')?.value, 10) || 1);
+  const reps = Math.max(1, parseInt(document.getElementById('krea2-repeats')?.value, 10) || 1);
+  const batch = Math.max(1, parseInt(document.getElementById('krea2-batch-size')?.value, 10) || 1);
+  const epochs = Math.max(1, parseInt(document.getElementById('krea2-epochs')?.value, 10) || 1);
+
+  const stepsPerEpoch = Math.ceil((imgs * reps) / batch);
+  const totalSteps = stepsPerEpoch * epochs;
+
+  const totalEl = document.getElementById('krea2-calc-total-steps');
+  const speEl = document.getElementById('krea2-calc-steps-epoch');
+  const fImgs = document.getElementById('krea2-calc-f-imgs');
+  const fReps = document.getElementById('krea2-calc-f-reps');
+  const fBatch = document.getElementById('krea2-calc-f-batch');
+  const fSpe = document.getElementById('krea2-calc-f-spe');
+  const fEpochs = document.getElementById('krea2-calc-f-epochs');
+  const badge = document.getElementById('krea2-calc-badge');
+  const timeEl = document.getElementById('krea2-calc-est-time');
+
+  if (totalEl) totalEl.textContent = totalSteps.toLocaleString();
+  if (speEl) speEl.textContent = stepsPerEpoch.toLocaleString();
+  if (fImgs) fImgs.textContent = imgs;
+  if (fReps) fReps.textContent = reps;
+  if (fBatch) fBatch.textContent = batch;
+  if (fSpe) fSpe.textContent = stepsPerEpoch;
+  if (fEpochs) fEpochs.textContent = epochs;
+
+  if (badge) {
+    if (totalSteps < 600) {
+      badge.textContent = '⚠️ Pocos pasos (< 600) — Sub-entrenamiento probable';
+      badge.style.background = 'rgba(234,179,8,0.15)';
+      badge.style.borderColor = 'rgba(234,179,8,0.4)';
+      badge.style.color = '#facc15';
+    } else if (totalSteps <= 2200) {
+      badge.textContent = '✅ Rango Óptimo (1,000 - 2,200) — Ideal para personaje';
+      badge.style.background = 'rgba(34,197,94,0.15)';
+      badge.style.borderColor = 'rgba(34,197,94,0.3)';
+      badge.style.color = '#4ade80';
+    } else if (totalSteps <= 3500) {
+      badge.textContent = '🔵 Entrenamiento Profundo (2,200 - 3,500) — Para estilos complejos';
+      badge.style.background = 'rgba(59,130,246,0.15)';
+      badge.style.borderColor = 'rgba(59,130,246,0.3)';
+      badge.style.color = '#60a5fa';
+    } else {
+      badge.textContent = '🔴 Demasiados pasos (> 3,500) — Riesgo alto de sobreajuste / quemado';
+      badge.style.background = 'rgba(239,68,68,0.15)';
+      badge.style.borderColor = 'rgba(239,68,68,0.4)';
+      badge.style.color = '#f87171';
+    }
+  }
+
+  if (timeEl) {
+    const sec = totalSteps * 0.55;
+    const mins = Math.round(sec / 60);
+    if (mins < 60) {
+      timeEl.textContent = `Tiempo est. (RTX 4090): ~${mins} min`;
+    } else {
+      const hrs = (mins / 60).toFixed(1);
+      timeEl.textContent = `Tiempo est. (RTX 4090): ~${hrs} h`;
+    }
   }
 }
 
