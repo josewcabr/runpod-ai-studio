@@ -929,7 +929,15 @@ btn, .btn {
 
             <!-- Bloque 4: Optimización VRAM (RunPod GPUs) -->
             <div style="background:var(--surf2);padding:14px;border-radius:var(--r);border:1px solid var(--border);">
-              <div style="font-size:13px;font-weight:600;margin-bottom:10px;color:var(--text);">4. Optimización de VRAM</div>
+              <div style="font-size:13px;font-weight:600;margin-bottom:10px;color:var(--text);">4. Optimización de VRAM y Atención</div>
+
+              <div class="input-label">Mecanismo de Atención (DiT)</div>
+              <select class="input" id="krea2-attention" style="margin-bottom:10px;">
+                <option value="sdpa" selected>SDPA (PyTorch Nativo - Recomendado)</option>
+                <option value="flash-attn">FlashAttention-2 (--flash-attn)</option>
+                <option value="sage-attn">SageAttention (--sage-attn)</option>
+                <option value="xformers">xFormers (--xformers)</option>
+              </select>
               
               <label style="display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:8px;cursor:pointer;">
                 <input type="checkbox" id="krea2-grad-ckpt" checked> Gradient Checkpointing (Ahorro crítico VRAM)
@@ -2418,6 +2426,7 @@ async function krea2Start() {
     max_train_epochs: parseInt(document.getElementById('krea2-epochs').value, 10) || 10,
     gradient_checkpointing: document.getElementById('krea2-grad-ckpt').checked,
     fp8_base: document.getElementById('krea2-fp8-base').checked,
+    attention_mechanism: document.getElementById('krea2-attention')?.value || 'sdpa',
     blocks_to_swap: parseInt(document.getElementById('krea2-blocks-swap').value, 10) || 0,
     skip_existing_cache: document.getElementById('krea2-skip-cache').checked,
   };

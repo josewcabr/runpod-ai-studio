@@ -309,6 +309,21 @@ def main():
     if config.get("gradient_checkpointing", True):
         train_cmd.append("--gradient_checkpointing")
 
+    # Mecanismo de atención requerido por musubi-tuner: --sdpa, --flash-attn, --sage-attn, --xformers
+    attn_mechanism = config.get("attention_mechanism", "sdpa").lower().strip()
+    if attn_mechanism in ("flash-attn", "flash_attn", "flashattn"):
+        train_cmd.append("--flash-attn")
+        log("Atención: --flash-attn")
+    elif attn_mechanism in ("sage-attn", "sage_attn", "sageattn"):
+        train_cmd.append("--sage-attn")
+        log("Atención: --sage-attn")
+    elif attn_mechanism == "xformers":
+        train_cmd.append("--xformers")
+        log("Atención: --xformers")
+    else:
+        train_cmd.append("--sdpa")
+        log("Atención: --sdpa (PyTorch Scaled Dot-Product Attention nativo)")
+
     # Optimizaciones VRAM específicas de DiT en musubi-tuner
     if config.get("fp8_base", False):
         train_cmd.append("--fp8_base")
