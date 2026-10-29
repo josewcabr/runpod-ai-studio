@@ -28,7 +28,7 @@
         {"name": "CLIP", "type": "CLIP", "links": [2], "shape": 3, "slot_index": 0}
       ],
       "properties": {"Node name for S&R": "CLIPLoader"},
-      "widgets_values": ["qwen3vl_4b_bf16.safetensors", "lumina2"]
+      "widgets_values": ["qwen3vl_4b_bf16.safetensors", "krea2"]
     },
     {
       "id": 3,
