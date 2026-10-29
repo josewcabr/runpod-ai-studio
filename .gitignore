@@ -1,0 +1,90 @@
+# ── Python & Bytecode ─────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+*.manifest
+*.spec
+
+# ── Entornos Virtuales (Venvs) ───────────────────────────────────
+venv/
+venv*/
+.venv/
+env/
+env*/
+ENV/
+env.bak/
+venv.bak/
+
+# ── Modelos de IA & Pesos Grandes (Safetensors / GGUF) ────────────
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.bin
+*.onnx
+*.gguf
+*.engine
+*.trt
+*.h5
+
+# ── Carpetas de Runtime & Almacenamiento Local en Pod ─────────────
+models/
+training/
+logs/
+*.log
+*.pid
+pids/
+.cache/
+.studio_tokens
+*.tmp
+tmp/
+temp/
+
+# ── Repositorios clonados dentro del Workspace ────────────────────
+kohya_ss/
+musubi-tuner/
+ComfyUI/
+stable-diffusion-webui-forge/
+sd-scripts/
+ComfyUI-Manager/
+
+# ── Archivos de control y estados de setup ────────────────────────
+.setup_done
+*/.setup_done
+.studio_cuda_env
+
+# ── IDEs, Editores & Sistema Operativo ────────────────────────────
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Configuraciones locales de asistentes / pruebas locales ───────
+.claude/
+.cursor/
+.GEMINI
+config-prodigy-illus.txt
+config-*.txt

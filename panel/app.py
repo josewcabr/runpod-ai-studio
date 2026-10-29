@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-RunPod AI Studio — Control Panel Backend
+AI Studio — Control Panel Backend
 Flask app que gestiona servicios, descargas y modelos.
 """
 import io
+import json
 import os
 import re
 import signal
@@ -21,7 +22,8 @@ app = Flask(__name__, static_folder='static')
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024 * 1024  # 20 GB — safetensors pueden pesar mucho
 
 # ── Paths ─────────────────────────────────────────────────────────
-WORKSPACE  = Path('/workspace')
+WORKSPACE  = Path(os.environ.get('WORKSPACE', '/workspace'))
+_WS        = str(WORKSPACE)   # versión string para interpolación en comandos shell
 MODELS_DIR = WORKSPACE / 'models'
 LOGS_DIR   = WORKSPACE / 'logs'
 PIDS_DIR   = LOGS_DIR / 'pids'
@@ -29,41 +31,93 @@ PIDS_DIR.mkdir(parents=True, exist_ok=True)
 CONFIG_DIR   = WORKSPACE / 'training' / 'config'
 COMFY_OUTPUT = WORKSPACE / 'ComfyUI' / 'output'
 
-CAPTION_VENV    = Path("/workspace/training/venv-caption")
+CAPTION_VENV    = WORKSPACE / 'training' / 'venv-caption'
 CAPTION_SCRIPTS = Path(__file__).parent / "scripts"
-CAPTION_LOG     = Path("/workspace/logs/caption.log")
-CAPTION_INST_LOG = Path("/workspace/logs/caption-install.log")
+CAPTION_LOG     = LOGS_DIR / 'caption.log'
+CAPTION_INST_LOG = LOGS_DIR / 'caption-install.log'
+TOKENS_FILE     = WORKSPACE / '.studio_tokens'
+
+# ── Musubi-Tuner (Krea 2) Paths ───────────────────────────────────
+MUSUBI_DIR        = WORKSPACE / 'musubi-tuner'
+MUSUBI_VENV       = MUSUBI_DIR / 'venv'
+KREA2_CACHE_DIR   = WORKSPACE / 'training' / 'cache_krea2'
+KREA2_CONFIG_DIR  = WORKSPACE / 'training' / 'config'
+KREA2_TRAIN_LOG   = LOGS_DIR / 'krea2_training.log'
+KREA2_INST_LOG    = LOGS_DIR / 'musubi-install.log'
+
+# ── Gestión de tokens persistentes ───────────────────────────────
+# Fuentes de tokens en orden de prioridad:
+#   1. Variable de entorno del launcher (RunPod Secrets / vast.ai Env Vars / inline export)
+#   2. Archivo $WORKSPACE/.studio_tokens (guardado desde el panel o por setup.sh)
+# El archivo persiste entre reinicios del panel y del contenedor.
+
+_TOKEN_KEYS   = ('HF_TOKEN', 'CIVITAI_TOKEN')
+_token_sources: dict[str, str] = {}   # key → 'env' | 'file' | ''
+
+def _load_tokens_file():
+    """Carga tokens del archivo al entorno si no están ya como variables de entorno."""
+    if not TOKENS_FILE.exists():
+        return
+    try:
+        for line in TOKENS_FILE.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith('#') or '=' not in line:
+                continue
+            key, _, val = line.partition('=')
+            key, val = key.strip(), val.strip()
+            if key in _TOKEN_KEYS and val and not os.environ.get(key):
+                os.environ[key] = val
+                _token_sources[key] = 'file'
+    except Exception as e:
+        print(f'[tokens] Error al cargar {TOKENS_FILE}: {e}')
+
+def _save_tokens_file():
+    """Escribe los tokens actuales del entorno al archivo."""
+    try:
+        lines = [f'{k}={os.environ[k]}' for k in _TOKEN_KEYS if os.environ.get(k)]
+        TOKENS_FILE.write_text('\n'.join(lines) + ('\n' if lines else ''))
+        TOKENS_FILE.chmod(0o600)
+    except Exception as e:
+        print(f'[tokens] Error al guardar {TOKENS_FILE}: {e}')
+
+# Inicialización al arrancar el panel:
+# 1. Marcar como 'env' los tokens ya presentes en el entorno
+for _k in _TOKEN_KEYS:
+    if os.environ.get(_k):
+        _token_sources[_k] = 'env'
+# 2. Completar con el archivo para los que falten
+_load_tokens_file()
 
 # ── Definición de servicios ───────────────────────────────────────
 # group 'exclusive' → solo uno puede estar activo en :7860
 # group 'independent' → convive con los demás
 
 SERVICES = {
-    
+
     'forge': {
         'name': 'Forge',
         'group': 'exclusive',
         'port': 7860,
         'cmd': (
-            'source /root/.studio_cuda_env 2>/dev/null || true; '
-            'cd /workspace/stable-diffusion-webui-forge && '
-            'python3 launch.py '
-            '--listen --port 7860 '
-            '--api --enable-insecure-extension-access '
-            '--cors-allow-origins=* '
-            '--skip-torch-cuda-test'
+            f'source /root/.studio_cuda_env 2>/dev/null || true; '
+            f'cd {_WS}/stable-diffusion-webui-forge && '
+            f'python3 launch.py '
+            f'--listen --port 7860 '
+            f'--api --enable-insecure-extension-access '
+            f'--cors-allow-origins=* '
+            f'--skip-torch-cuda-test'
         ),
         'log': 'forge.log',
     },
-        'kohya': {
+    'kohya': {
         'name': 'Kohya_ss',
         'group': 'exclusive',
         'port': 7860,
         'cmd': (
-            'source /root/.studio_cuda_env 2>/dev/null || true; '
-            '[ -f /workspace/kohya_ss/venv/bin/activate ] && source /workspace/kohya_ss/venv/bin/activate || true; '
-            'cd /workspace/kohya_ss && '
-            './gui.sh --server_port 7860 --listen=0.0.0.0 --headless --noverify'
+            f'source /root/.studio_cuda_env 2>/dev/null || true; '
+            f'[ -f {_WS}/kohya_ss/venv/bin/activate ] && source {_WS}/kohya_ss/venv/bin/activate || true; '
+            f'cd {_WS}/kohya_ss && '
+            f'./gui.sh --server_port 7860 --listen=0.0.0.0 --headless --noverify'
         ),
         'log': 'kohya.log',
         'tensorboard': True,
@@ -73,17 +127,17 @@ SERVICES = {
         'group': 'independent',
         'port': 8188,
         'cmd': (
-            'source /root/.studio_cuda_env 2>/dev/null || true; '
-            '[ -f /workspace/ComfyUI/venv/bin/activate ] && source /workspace/ComfyUI/venv/bin/activate || true; '
-            'cd /workspace/ComfyUI && '
-            'python main.py '
-            '--listen 0.0.0.0 --port 8188 --enable-cors-header'
+            f'source /root/.studio_cuda_env 2>/dev/null || true; '
+            f'[ -f {_WS}/ComfyUI/venv/bin/activate ] && source {_WS}/ComfyUI/venv/bin/activate || true; '
+            f'cd {_WS}/ComfyUI && '
+            f'python main.py '
+            f'--listen 0.0.0.0 --port 8188 --enable-cors-header'
         ),
         'log': 'comfyui.log',
     },
 }
 
-TENSORBOARD_CMD = 'tensorboard --logdir=/workspace/logs --port=6006 --host=0.0.0.0'
+TENSORBOARD_CMD = f'tensorboard --logdir={_WS}/logs --port=6006 --host=0.0.0.0'
 
 FORGE_DIR = WORKSPACE / 'stable-diffusion-webui-forge'
 
@@ -102,6 +156,13 @@ _caption_log_fh     = None   # log file handle for caption output
 _caption_lock       = threading.Lock()
 _caption_inst_proc  = None   # venv install process
 _caption_inst_log   = None   # log file handle for install output
+
+# Krea 2 Training runtime
+_krea2_proc         = None   # running krea2 training runner process
+_krea2_log_fh       = None   # log file handle for krea2 output
+_krea2_lock         = threading.Lock()
+_krea2_inst_proc    = None   # musubi-tuner install process
+_krea2_inst_log     = None   # log file handle for musubi install output
 
 def _forge_installed() -> bool:
     return FORGE_DIR.exists()
@@ -411,7 +472,7 @@ def _system_info() -> dict:
         pass
 
     try:
-        st = os.statvfs('/workspace')
+        st = os.statvfs(_WS)
         disk = {
             'total_gb': round(st.f_blocks * st.f_frsize / 1e9, 1),
             'free_gb':  round(st.f_bavail * st.f_frsize / 1e9, 1),
@@ -454,10 +515,7 @@ def api_status():
         **sys,
         'services':        services,
         'tensorboard':     _tb_status(),
-        'tokens': {
-            'HF_TOKEN':      bool(os.environ.get('HF_TOKEN')),
-            'CIVITAI_TOKEN': bool(os.environ.get('CIVITAI_TOKEN')),
-        },
+        'tokens': {k: _token_sources.get(k, '') for k in _TOKEN_KEYS},
         'active_downloads': active_dl,
     })
 
@@ -505,7 +563,7 @@ def api_restart(sid):
 
 @app.route('/api/services/<sid>/log')
 def api_log(sid):
-    known = list(SERVICES.keys()) + ['tensorboard', 'panel']
+    known = list(SERVICES.keys()) + ['tensorboard', 'panel', 'caption', 'caption-install', 'krea2_training', 'musubi-install']
     if sid not in known:
         return jsonify({'error': 'Servicio desconocido'}), 404
     log_name = SERVICES[sid]['log'] if sid in SERVICES else f'{sid}.log'
@@ -752,10 +810,16 @@ def api_models_delete():
 @app.route('/api/tokens', methods=['POST'])
 def api_tokens():
     data = request.json or {}
-    for key in ('HF_TOKEN', 'CIVITAI_TOKEN'):
+    for key in _TOKEN_KEYS:
         val = data.get(key, '').strip()
         if val:
             os.environ[key] = val
+            _token_sources[key] = 'file'
+        elif data.get(key) == '':
+            # String vacío explícito → borrar token
+            os.environ.pop(key, None)
+            _token_sources.pop(key, None)
+    _save_tokens_file()
     return jsonify({'ok': True})
 
 # ── Upload de archivos ────────────────────────────────────────────
@@ -864,10 +928,10 @@ def api_comfy_output_zip():
     root  = COMFY_OUTPUT.resolve()
     paths = []
     for name in names:
-        safe = secure_filename(name)
-        if not safe:
-            continue
-        p = (COMFY_OUTPUT / safe).resolve()
+        # Reject path traversal without altering the filename
+        if not name or '/' in name or '\\' in name or '..' in name:
+            return jsonify({'error': f'Path no permitido: {name}'}), 403
+        p = (COMFY_OUTPUT / name).resolve()
         try:
             p.relative_to(root)
         except ValueError:
@@ -991,8 +1055,258 @@ def caption_stop():
     return jsonify({'ok': False, 'error': 'No hay proceso activo'})
 
 
+# ── Krea 2 / Musubi-Tuner Training Endpoints ──────────────────────
+
+@app.route('/api/train/krea2/venv-status')
+def krea2_venv_status():
+    installed = (MUSUBI_VENV / 'bin' / 'python').exists() and (MUSUBI_DIR / 'src' / 'musubi_tuner').exists()
+    return jsonify({
+        'installed': installed,
+        'musubi_dir': str(MUSUBI_DIR),
+        'exists': MUSUBI_DIR.exists()
+    })
+
+
+@app.route('/api/train/krea2/install', methods=['POST'])
+def krea2_install():
+    global _krea2_inst_proc, _krea2_inst_log
+    with _krea2_lock:
+        if _krea2_inst_proc and _krea2_inst_proc.poll() is None:
+            return jsonify({'error': 'Instalación de musubi-tuner ya en curso'}), 409
+        KREA2_INST_LOG.parent.mkdir(parents=True, exist_ok=True)
+        _krea2_inst_log = open(str(KREA2_INST_LOG), 'w', buffering=1)
+        cmd = (
+            f"cd {WORKSPACE} && "
+            f"([ -d musubi-tuner ] || git clone https://github.com/kohya-ss/musubi-tuner.git) && "
+            f"cd musubi-tuner && git pull || true && "
+            f"python3 -m venv {MUSUBI_VENV} && "
+            f"{MUSUBI_VENV}/bin/pip install --upgrade pip wheel setuptools && "
+            f"{MUSUBI_VENV}/bin/pip install \"torch>=2.6.0\" torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124 && "
+            f"{MUSUBI_VENV}/bin/pip install -e . && "
+            f"{MUSUBI_VENV}/bin/pip install bitsandbytes accelerate tomli toml huggingface_hub && "
+            f"echo 'INSTALACIÓN MUSUBI COMPLETADA'"
+        )
+        _krea2_inst_proc = subprocess.Popen(
+            ['bash', '-c', cmd],
+            stdout=_krea2_inst_log, stderr=subprocess.STDOUT
+        )
+    return jsonify({'ok': True})
+
+
+@app.route('/api/train/krea2/install-log')
+def krea2_install_log():
+    global _krea2_inst_proc
+    lines_n = min(int(request.args.get('lines', 100)), 500)
+    running = bool(_krea2_inst_proc and _krea2_inst_proc.poll() is None)
+    done    = False
+    error   = False
+    lines   = []
+    if KREA2_INST_LOG.exists():
+        all_lines = KREA2_INST_LOG.read_text(encoding='utf-8', errors='replace').splitlines()
+        lines = all_lines[-lines_n:]
+        if all_lines:
+            done  = any('INSTALACIÓN MUSUBI COMPLETADA' in l for l in all_lines[-10:])
+            error = (_krea2_inst_proc is not None and
+                     _krea2_inst_proc.poll() not in (None, 0))
+    return jsonify({'lines': lines, 'running': running, 'done': done, 'error': error})
+
+
+@app.route('/api/train/krea2/models')
+def krea2_models():
+    """Devuelve listas de checkpoints, vae y text encoders disponibles en el sistema."""
+    checkpoints = []
+    ckpt_dir = MODELS_DIR / 'checkpoints'
+    if ckpt_dir.exists():
+        checkpoints = [f.name for f in sorted(ckpt_dir.iterdir()) if f.is_file() and f.suffix.lower() in DOWNLOADABLE_EXTS]
+
+    vaes = []
+    vae_dir = MODELS_DIR / 'vae'
+    if vae_dir.exists():
+        vaes = [f.name for f in sorted(vae_dir.iterdir()) if f.is_file() and f.suffix.lower() in DOWNLOADABLE_EXTS]
+
+    text_encoders = []
+    for d in [MODELS_DIR / 'text_encoders', MODELS_DIR / 'clip']:
+        if d.exists():
+            for f in sorted(d.iterdir()):
+                if f.is_file() and f.suffix.lower() in DOWNLOADABLE_EXTS:
+                    text_encoders.append(f.name)
+
+    img_dir = WORKSPACE / 'training' / 'images'
+    raw_dir = WORKSPACE / 'training' / 'raw-images'
+    has_images = img_dir.exists() and any(img_dir.iterdir())
+    has_raw = raw_dir.exists() and any(raw_dir.iterdir())
+
+    active_dir = img_dir if has_images or not has_raw else raw_dir
+    img_count = 0
+    if active_dir.exists():
+        img_count = len([f for f in active_dir.iterdir() if f.is_file() and f.suffix.lower() in ('.png', '.jpg', '.jpeg', '.webp')])
+
+    return jsonify({
+        'checkpoints': checkpoints,
+        'vaes': vaes,
+        'text_encoders': text_encoders,
+        'default_image_dir': str(active_dir),
+        'image_count': img_count
+    })
+
+
+@app.route('/api/train/krea2/start', methods=['POST'])
+def krea2_train_start():
+    global _krea2_proc, _krea2_log_fh
+    data = request.get_json(force=True) or {}
+
+    venv_python = MUSUBI_VENV / 'bin' / 'python'
+    if not venv_python.exists():
+        return jsonify({'error': 'Musubi-tuner venv no está instalado'}), 409
+
+    script = Path(__file__).parent / 'scripts' / 'train_krea2.py'
+    if not script.exists():
+        return jsonify({'error': f'Script runner no encontrado: {script}'}), 500
+
+    with _krea2_lock:
+        if _krea2_proc and _krea2_proc.poll() is None:
+            return jsonify({'error': 'Ya hay un entrenamiento de Krea 2 en curso'}), 409
+
+        KREA2_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        job_config_file = KREA2_CONFIG_DIR / 'krea2_job.json'
+        data['workspace'] = str(WORKSPACE)
+        job_config_file.write_text(json.dumps(data, indent=2), encoding='utf-8')
+
+        KREA2_TRAIN_LOG.parent.mkdir(parents=True, exist_ok=True)
+        if _krea2_log_fh:
+            try: _krea2_log_fh.close()
+            except: pass
+        _krea2_log_fh = open(str(KREA2_TRAIN_LOG), 'w', buffering=1)
+
+        cmd = [str(venv_python), str(script), '--config', str(job_config_file)]
+        _krea2_proc = subprocess.Popen(
+            cmd,
+            stdout=_krea2_log_fh,
+            stderr=subprocess.STDOUT,
+            preexec_fn=os.setsid,
+            text=True,
+        )
+        _write_pid('krea2_training', _krea2_proc.pid)
+
+    return jsonify({'ok': True, 'pid': _krea2_proc.pid})
+
+
+@app.route('/api/train/krea2/status')
+def krea2_train_status():
+    global _krea2_proc
+    running = False
+    with _krea2_lock:
+        if _krea2_proc and _krea2_proc.poll() is None:
+            running = True
+    if not running:
+        pid = _read_pid('krea2_training')
+        if pid and _pid_alive(pid) and not _is_zombie(pid):
+            running = True
+
+    stage = 'idle'
+    if running and KREA2_TRAIN_LOG.exists():
+        try:
+            lines = KREA2_TRAIN_LOG.read_text(encoding='utf-8', errors='replace').splitlines()[-25:]
+            for l in reversed(lines):
+                if 'PASO 3/3' in l or 'Entrenando red' in l or 'epoch' in l.lower():
+                    stage = 'training'
+                    break
+                elif 'PASO 2/3' in l or 'embeddings de texto' in l:
+                    stage = 'caching_text'
+                    break
+                elif 'PASO 1/3' in l or 'latentes' in l:
+                    stage = 'caching_latents'
+                    break
+        except Exception:
+            pass
+
+    return jsonify({'running': running, 'stage': stage})
+
+
+@app.route('/api/train/krea2/log')
+def krea2_train_log():
+    lines_n = min(int(request.args.get('lines', 150)), 500)
+    lines = []
+    if KREA2_TRAIN_LOG.exists():
+        all_lines = KREA2_TRAIN_LOG.read_text(encoding='utf-8', errors='replace').splitlines()
+        lines = all_lines[-lines_n:]
+    running = False
+    with _krea2_lock:
+        if _krea2_proc and _krea2_proc.poll() is None:
+            running = True
+    return jsonify({'lines': lines, 'running': running})
+
+
+@app.route('/api/train/krea2/stop', methods=['POST'])
+def krea2_train_stop():
+    global _krea2_proc
+    with _krea2_lock:
+        if _krea2_proc and _krea2_proc.poll() is None:
+            _kill(_krea2_proc.pid)
+            _krea2_proc = None
+    pid = _read_pid('krea2_training')
+    if pid:
+        _kill(pid)
+        _clear_pid('krea2_training')
+    return jsonify({'ok': True})
+
+
+@app.route('/api/train/krea2/clear-cache', methods=['POST'])
+def krea2_clear_cache():
+    count = 0
+    if KREA2_CACHE_DIR.exists():
+        import shutil
+        for item in KREA2_CACHE_DIR.iterdir():
+            if item.is_file():
+                item.unlink(missing_ok=True)
+                count += 1
+            elif item.is_dir():
+                shutil.rmtree(item, ignore_errors=True)
+                count += 1
+    return jsonify({'ok': True, 'cleared_items': count})
+
+
+# ── Detección de plataforma ───────────────────────────────────────
+def _detect_platform() -> dict:
+    """
+    Detecta la plataforma de nube y devuelve la info necesaria para
+    que el frontend construya URLs de servicios correctamente.
+
+    Plataformas soportadas:
+    - runpod   → proxy *.proxy.runpod.net  (RUNPOD_POD_ID presente)
+    - vastai   → proxy *.jupyter.vast.ai   (VAST_CONTAINERLABEL o VASTAI_* presente)
+    - generic  → acceso directo por IP/hostname
+    """
+    # RunPod: inyecta RUNPOD_POD_ID en todos los pods
+    if os.environ.get('RUNPOD_POD_ID'):
+        return {
+            'name': 'runpod',
+            'pod_id': os.environ['RUNPOD_POD_ID'],
+            # El proxy de RunPod sigue el patrón: <pod_id>-<port>.proxy.runpod.net
+            'proxy_template': 'https://{pod_id}-{port}.proxy.runpod.net',
+        }
+
+    # vast.ai: inyecta VAST_CONTAINERLABEL y opcionalmente VAST_TCP_PORT_<N>
+    if os.environ.get('VAST_CONTAINERLABEL'):
+        return {
+            'name': 'vastai',
+            'container_label': os.environ['VAST_CONTAINERLABEL'],
+            # vast.ai no tiene proxy centralizado; los puertos se mapean
+            # al host directamente. El frontend usará window.location.hostname.
+            'proxy_template': None,
+        }
+
+    return {'name': 'generic', 'proxy_template': None}
+
+
+@app.route('/api/platform')
+def api_platform():
+    return jsonify(_detect_platform())
+
+
 # ── Entrypoint ────────────────────────────────────────────────────
 if __name__ == '__main__':
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
-    print('🎛️  RunPod AI Studio — Control Panel en http://0.0.0.0:3000')
+    platform = _detect_platform()['name']
+    print(f'🎛️  AI Studio — Control Panel en http://0.0.0.0:3000  (plataforma: {platform})')
     app.run(host='0.0.0.0', port=3000, debug=False, threaded=True)

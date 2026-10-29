@@ -1,9 +1,10 @@
 #!/bin/bash
 # =================================================================
-# RunPod AI Studio — setup.sh
-# Base image: runpod/pytorch:2.2.0-py3.10-cuda12.1.1-devel-ubuntu22.04
+# AI Studio — setup.sh
+# Imagen base recomendada:
+#   runpod/pytorch:2.2.0-py3.10-cuda12.1.1-devel-ubuntu22.04
 #
-# Start Command del template RunPod:
+# Start command (RunPod / vast.ai / cualquier contenedor):
 #   bash -c "
 #     if [ -d /workspace/studio ]; then
 #       git -C /workspace/studio pull --quiet
@@ -14,22 +15,27 @@
 #     sleep infinity
 #   "
 #
-# Puertos a exponer en RunPod:
+# Puertos a exponer:
 #   3000 → Control Panel   (siempre activo)
-#   7860 → Forge/Kohya (slot exclusivo, lanzar desde el panel)
+#   7860 → Forge/Kohya     (slot exclusivo, lanzar desde el panel)
 #   8188 → ComfyUI         (siempre activo)
 #   8888 → Jupyter Lab     (siempre activo)
 #   6006 → TensorBoard     (auto al lanzar Kohya)
 #
-# RunPod Secrets recomendados:
+# Variables de entorno recomendadas:
 #   HF_TOKEN      → HuggingFace (necesario para FLUX.1-dev)
 #   CIVITAI_TOKEN → CivitAI
+#
+# Plataformas soportadas: RunPod, vast.ai, cualquier contenedor Docker
 # =================================================================
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 export PIP_ROOT_USER_ACTION=ignore
 
-WORKSPACE="/workspace"
+# WORKSPACE puede sobreescribirse como variable de entorno antes de llamar
+# al script. Ejemplo para vast.ai con volumen en /data:
+#   export WORKSPACE=/data; bash /data/studio/setup.sh
+WORKSPACE="${WORKSPACE:-/workspace}"
 REPO_DIR="$WORKSPACE/studio"
 MODELS_DIR="$WORKSPACE/models"
 LOGS_DIR="$WORKSPACE/logs"
@@ -45,10 +51,37 @@ done_flag() { echo "$1/.setup_done"; }
 is_done()   { [ -f "$(done_flag "$1")" ]; }
 mark_done() { touch "$(done_flag "$1")"; }
 
-log "RunPod AI Studio — setup iniciado"
-log "GPU count: ${RUNPOD_GPU_COUNT:-1}"
-[ -z "${HF_TOKEN:-}" ]      && log "⚠  HF_TOKEN no detectado (FLUX.1-dev no disponible)"
-[ -z "${CIVITAI_TOKEN:-}" ] && log "⚠  CIVITAI_TOKEN no detectado"
+log "AI Studio — setup iniciado"
+log "Workspace: $WORKSPACE"
+
+# ── Detección de plataforma ───────────────────────────────────────
+if [ -n "${RUNPOD_POD_ID:-}" ]; then
+    PLATFORM="runpod"
+    log "Plataforma: RunPod (POD_ID: $RUNPOD_POD_ID)"
+elif [ -n "${VAST_CONTAINERLABEL:-}" ]; then
+    PLATFORM="vastai"
+    log "Plataforma: vast.ai (CONTAINER: $VAST_CONTAINERLABEL)"
+else
+    PLATFORM="generic"
+    log "Plataforma: genérica"
+fi
+# ── Tokens: persistir al disco ───────────────────────────────────
+# Si los tokens vienen del launcher (env vars, RunPod Secrets, inline export),
+# los guardamos en $WORKSPACE/.studio_tokens para que el panel los cargue
+# automáticamente aunque no estén como variables de entorno en el siguiente inicio.
+TOKENS_FILE="$WORKSPACE/.studio_tokens"
+if [ -n "${HF_TOKEN:-}" ] || [ -n "${CIVITAI_TOKEN:-}" ]; then
+    {
+        [ -n "${HF_TOKEN:-}" ]      && echo "HF_TOKEN=$HF_TOKEN"
+        [ -n "${CIVITAI_TOKEN:-}" ] && echo "CIVITAI_TOKEN=$CIVITAI_TOKEN"
+    } > "$TOKENS_FILE"
+    chmod 600 "$TOKENS_FILE"
+    log "✅ Tokens persistidos en $TOKENS_FILE"
+else
+    log "⚠  HF_TOKEN no detectado (FLUX.1-dev no disponible)"
+    log "⚠  CIVITAI_TOKEN no detectado"
+    log "   → Pásalos como env vars del launcher o configúralos en el panel"
+fi
 
 # ── 1. Paquetes del sistema (siempre, rápido) ─────────────────────
 section "Paquetes del sistema"
@@ -82,7 +115,18 @@ log "✅ Paquetes listos"
 section "Accelerate config"
 ACCEL_DIR="/root/.cache/huggingface/accelerate"
 mkdir -p "$ACCEL_DIR"
-GPU_COUNT="${RUNPOD_GPU_COUNT:-1}"
+# Detectar GPU count: RunPod lo expone en RUNPOD_GPU_COUNT,
+# vast.ai en VAST_CONTAINERLABEL (no sirve para esto), así que
+# como fallback usamos nvidia-smi para contar GPUs reales.
+if [ -n "${RUNPOD_GPU_COUNT:-}" ]; then
+    GPU_COUNT="$RUNPOD_GPU_COUNT"
+elif command -v nvidia-smi &>/dev/null; then
+    GPU_COUNT=$(nvidia-smi --list-gpus 2>/dev/null | wc -l || echo 1)
+    [ "$GPU_COUNT" -lt 1 ] && GPU_COUNT=1
+else
+    GPU_COUNT=1
+fi
+log "GPU count: $GPU_COUNT"
 
 if (( GPU_COUNT > 1 )); then
     log "Multi-GPU detectado ($GPU_COUNT GPUs)"
@@ -273,10 +317,54 @@ else
 fi
 
 
-# ── 5. Estructura de modelos y symlinks ───────────────────────────
+# ── 5. Musubi-Tuner (Krea 2 LoRA Training) ────────────────────────
+section "Musubi-Tuner (Krea 2)"
+cd "$WORKSPACE" || { log "FATAL: No se puede acceder a $WORKSPACE"; exit 1; }
+
+if [ ! -d "musubi-tuner" ]; then
+    git clone https://github.com/kohya-ss/musubi-tuner.git
+fi
+
+if ! is_done "$WORKSPACE/musubi-tuner" || [ ! -d "$WORKSPACE/musubi-tuner/venv" ]; then
+    cd musubi-tuner || { log "FATAL: No se puede acceder a musubi-tuner"; exit 1; }
+    git checkout main 2>/dev/null || true
+    git pull 2>&1 | tee -a "$LOG_FILE" || log "⚠  git pull musubi-tuner falló (continuando con versión actual)"
+
+    MUSUBI_VENV="$WORKSPACE/musubi-tuner/venv"
+    log "Creando venv de Musubi-Tuner..."
+    python3 -m venv "$MUSUBI_VENV"
+    # shellcheck disable=SC1091
+    source "$MUSUBI_VENV/bin/activate"
+    pip install --upgrade pip wheel setuptools -q
+
+    log "Instalando PyTorch para Musubi-Tuner (CUDA 12.4)..."
+    pip install -q \
+        "torch>=2.6.0" torchvision torchaudio \
+        --index-url https://download.pytorch.org/whl/cu124
+
+    log "Instalando dependencias de Musubi-Tuner (editable)..."
+    pip install -q -e .
+
+    log "Instalando extras para Krea 2 (bitsandbytes, accelerate, toml)..."
+    pip install -q \
+        bitsandbytes \
+        accelerate \
+        tomli \
+        toml \
+        huggingface_hub
+
+    deactivate 2>/dev/null || true
+    mark_done "$WORKSPACE/musubi-tuner"
+    log "✅ Musubi-Tuner instalado"
+else
+    log "⏭  Ya instalado"
+fi
+
+
+# ── 6. Estructura de modelos y symlinks ───────────────────────────
 section "Modelos y symlinks"
 mkdir -p "$MODELS_DIR"/{checkpoints,loras,vae,clip,unet,controlnet,embeddings,upscalers,hypernetworks,audio_encoders,clip_vision,diffusion_models,gligen,latent_upscale_models,photomaker,style_models,text_encoders}
-mkdir -p "$WORKSPACE/training"/{images,raw-images,captions,output,config}
+mkdir -p "$WORKSPACE/training"/{images,raw-images,captions,output,config,cache_krea2}
 mkdir -p "$WORKSPACE/training/captions"/{blip,wd14}
 mkdir -p "$WORKSPACE/training/output/loras"
 
@@ -308,9 +396,9 @@ done
 
 # extra_model_paths.yaml: ComfyUI busca loras también en training/output/loras.
 # Los .safetensors de Kohya aparecen en ComfyUI automáticamente al terminar el training.
-cat > "$WORKSPACE/ComfyUI/extra_model_paths.yaml" <<'EOF'
+cat > "$WORKSPACE/ComfyUI/extra_model_paths.yaml" <<EOF
 comfyui:
-    loras: /workspace/training/output/loras/
+    loras: $WORKSPACE/training/output/loras/
 EOF
 
 # Forge (solo si ya está instalado — se instala desde el panel)
@@ -334,9 +422,9 @@ if [ -d "$WORKSPACE/stable-diffusion-webui-forge" ]; then
     log "✅ Symlinks Forge creados"
 fi
 
-log "✅ Symlinks creados — /workspace/models es la fuente única"
+log "✅ Symlinks creados — $WORKSPACE/models es la fuente única"
 
-# ── 6. Arrancar servicios con tmux ───────────────────────────────
+# ── 7. Arrancar servicios con tmux ───────────────────────────────
 section "Arrancando servicios"
 
 tmux kill-server 2>/dev/null || true
@@ -352,9 +440,18 @@ tmux send-keys -t studio:panel \
     "${CUDA_SOURCE}cd $REPO_DIR/panel && python3 app.py 2>&1 | tee $LOGS_DIR/panel.log" Enter
 
 # ── Jupyter Lab (:8888) — siempre activo
-#    Sin token ni contraseña: el proxy de RunPod ya protege el acceso.
-#    notebook-dir=/workspace para tener acceso completo al volumen:
-#    modelos, training, repos, logs, todo visible y subible desde el navegador.
+#    RunPod: sin token (el proxy de RunPod protege el acceso).
+#    vast.ai / genérico: token aleatorio para proteger el acceso a internet.
+if [ "$PLATFORM" = "runpod" ]; then
+    JUPYTER_SECURITY="--NotebookApp.token='' --NotebookApp.password=''"
+    log "Jupyter: sin token (protegido por proxy de RunPod)"
+else
+    _JUPYTER_TOKEN=$(openssl rand -hex 16 2>/dev/null || head -c 32 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 16)
+    JUPYTER_SECURITY="--NotebookApp.token='$_JUPYTER_TOKEN'"
+    log "🔐 Jupyter token: $_JUPYTER_TOKEN"
+    log "   URL: http://<IP_PUBLICA>:8888/?token=$_JUPYTER_TOKEN"
+fi
+
 tmux new-window -t studio -n 'jupyter'
 tmux send-keys -t studio:jupyter \
     "jupyter lab \
@@ -362,9 +459,8 @@ tmux send-keys -t studio:jupyter \
         --port=8888 \
         --no-browser \
         --allow-root \
-        --NotebookApp.token='' \
-        --NotebookApp.password='' \
-        --notebook-dir=/workspace \
+        $JUPYTER_SECURITY \
+        --notebook-dir=$WORKSPACE \
         2>&1 | tee $LOGS_DIR/jupyter.log" Enter
 
 # ── ComfyUI (:8188) — siempre activo
@@ -383,7 +479,7 @@ python main.py --listen 0.0.0.0 --port 8188 --enable-cors-header \
 # ── Reinicio Jupyter (arranca mal en el primer boot, se reinicia al final del setup)
 pkill -f jupyter || true
 sleep 3
-tmux send-keys -t studio:jupyter "jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root --NotebookApp.token='' --NotebookApp.password='' --ServerApp.allow_origin='*' --ServerApp.allow_remote_access=True --notebook-dir=/workspace 2>&1 | tee $LOGS_DIR/jupyter.log" Enter
+tmux send-keys -t studio:jupyter "jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root $JUPYTER_SECURITY --ServerApp.allow_origin='*' --ServerApp.allow_remote_access=True --notebook-dir=$WORKSPACE 2>&1 | tee $LOGS_DIR/jupyter.log" Enter
 
 section "Setup completado ✅"
 log "  Panel de control  → puerto 3000"

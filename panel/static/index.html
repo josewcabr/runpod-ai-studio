@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>RunPod AI Studio</title>
+<title>AI Studio</title>
 <style>
 /* ── Reset & Variables ─────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -379,7 +379,7 @@ btn, .btn {
 <aside class="sidebar">
   <div class="logo">
     <div class="logo-title">🎛 AI Studio</div>
-    <div class="logo-sub">RunPod Control Panel</div>
+    <div class="logo-sub" id="platform-label">Control Panel</div>
   </div>
 
   <nav>
@@ -418,7 +418,10 @@ btn, .btn {
       </div>
     </div>
     <div class="nav-group">
-      <div class="nav-label">Herramientas</div>
+      <div class="nav-label">Entrenamiento</div>
+      <div class="nav-item" data-sec="krea2">
+        <span class="nav-icon">⚡</span> Krea 2 LoRA
+      </div>
       <div class="nav-item" data-sec="captions">
         <span class="nav-icon">✍</span> Captions
       </div>
@@ -561,14 +564,16 @@ btn, .btn {
       <div class="card">
         <div class="card-title">Tokens API</div>
         <p style="color:var(--muted);font-size:12px;margin-bottom:16px;">
-          Los tokens se cargan automáticamente de los <strong>RunPod Secrets</strong> al arrancar el pod (variables de entorno <code style="color:var(--accent)">HF_TOKEN</code> y <code style="color:var(--accent)">CIVITAI_TOKEN</code>).
-          Si quieres sobrescribirlos manualmente, introdúcelos aquí. Se guardan solo en memoria — se pierden al reiniciar el pod.
+          Los tokens se pueden configurar de tres formas:<br>
+          <strong>1.</strong> Variables de entorno del launcher (RunPod Secrets / vast.ai Env Vars).<br>
+          <strong>2.</strong> Inline en el start command: <code style="color:var(--accent)">export HF_TOKEN=hf_xxx</code> antes de llamar a <code style="color:var(--accent)">setup.sh</code>.<br>
+          <strong>3.</strong> Desde este panel — se guardan en <code style="color:var(--accent)">$WORKSPACE/.studio_tokens</code> y persisten entre reinicios.
         </p>
 
         <div id="tok-status-section" style="margin-bottom:16px;"></div>
 
         <hr class="sep">
-        <div class="card-title" style="margin-bottom:12px;">Sobrescribir manualmente</div>
+        <div class="card-title" style="margin-bottom:12px;">Configurar tokens</div>
 
         <div class="token-row">
           <span class="token-label">HF_TOKEN</span>
@@ -578,7 +583,7 @@ btn, .btn {
           <span class="token-label">CIVITAI_TOKEN</span>
           <input class="input" id="tok-civ-input" type="password" placeholder="Token de CivitAI" style="flex:1">
         </div>
-        <button class="btn primary mt" onclick="saveTokens()">Guardar en memoria</button>
+        <button class="btn primary mt" onclick="saveTokens()">Guardar</button>
         <div id="tok-save-msg"></div>
       </div>
     </div>
@@ -714,6 +719,189 @@ btn, .btn {
       </div>
     </div>
 
+    <!-- ─── ENTRENAMIENTO KREA 2 (MUSUBI-TUNER) ────────────────────── -->
+    <div class="section" id="sec-krea2">
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+          <div class="card-title" style="margin:0;">Entrenamiento LoRA — Krea 2 (Musubi-Tuner)</div>
+          <span class="badge" id="krea2-badge-status">Inactivo</span>
+        </div>
+        <p style="color:var(--muted);font-size:12px;margin-bottom:14px;">
+          Flujo automatizado en 3 etapas: <strong>Caché VAE</strong> → <strong>Caché Texto (Qwen3-VL)</strong> → <strong>Entrenamiento DiT LoRA</strong>. El modelo guardado en <code style="color:var(--accent)">/workspace/training/output/loras/</code> es compatible directamente en ComfyUI con <strong>Krea 2 Turbo GGUF</strong>.
+        </p>
+
+        <!-- Musubi Venv status -->
+        <div id="krea2-venv-status" style="margin-bottom:14px;">
+          <span class="spin"></span>
+        </div>
+
+        <!-- Install area (shown when musubi-tuner not installed) -->
+        <div id="krea2-install-area" style="display:none;margin-bottom:16px;">
+          <button class="btn primary" id="krea2-install-btn" onclick="krea2Install()">Instalar Musubi-Tuner (venv)</button>
+          <div id="krea2-install-log-wrap" style="display:none;margin-top:12px;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+              <span style="font-size:12px;color:var(--muted)">Instalando dependencias de Musubi-Tuner…</span>
+              <span class="spin" id="krea2-install-spin"></span>
+            </div>
+            <div class="log-box" id="krea2-install-log" style="height:200px;">(esperando log…)</div>
+          </div>
+          <div id="krea2-install-msg" style="margin-top:8px;"></div>
+        </div>
+
+        <!-- Training Form area (shown when installed) -->
+        <div id="krea2-form-area" style="display:none;">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:16px;margin-bottom:16px;">
+            
+            <!-- Bloque 1: Modelos Base -->
+            <div style="background:var(--surf2);padding:14px;border-radius:var(--r);border:1px solid var(--border);">
+              <div style="font-size:13px;font-weight:600;margin-bottom:10px;color:var(--text);">1. Modelos Base (Origen)</div>
+              
+              <div class="input-label">Modelo DiT RAW (bf16)</div>
+              <select class="input" id="krea2-dit-select" style="margin-bottom:10px;"></select>
+              
+              <div class="input-label">VAE (Qwen-Image VAE)</div>
+              <select class="input" id="krea2-vae-select" style="margin-bottom:10px;"></select>
+              
+              <div class="input-label">Text Encoder (Qwen3-VL 4B)</div>
+              <select class="input" id="krea2-te-select" style="margin-bottom:0;"></select>
+            </div>
+
+            <!-- Bloque 2: Dataset -->
+            <div style="background:var(--surf2);padding:14px;border-radius:var(--r);border:1px solid var(--border);">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                <span style="font-size:13px;font-weight:600;color:var(--text);">2. Dataset e Imágenes</span>
+                <span id="krea2-dataset-info" style="font-size:11px;color:var(--muted);"></span>
+              </div>
+              
+              <div class="input-label">Directorio de imágenes</div>
+              <input class="input" id="krea2-img-dir" value="/workspace/training/images" style="margin-bottom:10px;">
+              
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+                <div>
+                  <div class="input-label">Resolución</div>
+                  <select class="input" id="krea2-reso-select">
+                    <option value="1024,1024" selected>1024 x 1024</option>
+                    <option value="768,768">768 x 768</option>
+                    <option value="512,512">512 x 512</option>
+                  </select>
+                </div>
+                <div>
+                  <div class="input-label">Repeticiones</div>
+                  <input class="input" type="number" id="krea2-repeats" value="1" min="1" max="100">
+                </div>
+              </div>
+
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                <div>
+                  <div class="input-label">Extensión Caption</div>
+                  <input class="input" id="krea2-caption-ext" value=".txt">
+                </div>
+                <div>
+                  <div class="input-label">Batch Size</div>
+                  <input class="input" type="number" id="krea2-batch-size" value="1" min="1" max="16">
+                </div>
+              </div>
+            </div>
+
+            <!-- Bloque 3: Hiperparámetros LoRA -->
+            <div style="background:var(--surf2);padding:14px;border-radius:var(--r);border:1px solid var(--border);">
+              <div style="font-size:13px;font-weight:600;margin-bottom:10px;color:var(--text);">3. Hiperparámetros LoRA</div>
+
+              <div class="input-label">Nombre del LoRA (output)</div>
+              <input class="input" id="krea2-output-name" value="krea2_lora_model" placeholder="krea2_lora_model" style="margin-bottom:10px;">
+
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+                <div>
+                  <div class="input-label">Network Dim / Rank</div>
+                  <input class="input" type="number" id="krea2-rank" value="32" min="1" max="256">
+                </div>
+                <div>
+                  <div class="input-label">Network Alpha</div>
+                  <input class="input" type="number" id="krea2-alpha" value="32" min="1" max="256">
+                </div>
+              </div>
+
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+                <div>
+                  <div class="input-label">Learning Rate</div>
+                  <input class="input" id="krea2-lr" value="1e-4">
+                </div>
+                <div>
+                  <div class="input-label">Optimizador</div>
+                  <select class="input" id="krea2-optimizer">
+                    <option value="adamw8bit" selected>AdamW 8-bit (Recomendado)</option>
+                    <option value="paged_adamw8bit">Paged AdamW 8-bit</option>
+                    <option value="adamw">AdamW (32-bit)</option>
+                    <option value="adafactor">Adafactor</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                <div>
+                  <div class="input-label">Épocas (Epochs)</div>
+                  <input class="input" type="number" id="krea2-epochs" value="10" min="1" max="200">
+                </div>
+                <div>
+                  <div class="input-label">LR Scheduler</div>
+                  <select class="input" id="krea2-scheduler">
+                    <option value="cosine" selected>Cosine</option>
+                    <option value="constant_with_warmup">Constant Warmup</option>
+                    <option value="constant">Constant</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- Bloque 4: Optimización VRAM (RunPod GPUs) -->
+            <div style="background:var(--surf2);padding:14px;border-radius:var(--r);border:1px solid var(--border);">
+              <div style="font-size:13px;font-weight:600;margin-bottom:10px;color:var(--text);">4. Optimización de VRAM</div>
+              
+              <label style="display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:8px;cursor:pointer;">
+                <input type="checkbox" id="krea2-grad-ckpt" checked> Gradient Checkpointing (Ahorro crítico VRAM)
+              </label>
+
+              <label style="display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:8px;cursor:pointer;">
+                <input type="checkbox" id="krea2-fp8-base"> FP8 Base Weights (--fp8_base para 24GB GPUs)
+              </label>
+
+              <label style="display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:10px;cursor:pointer;">
+                <input type="checkbox" id="krea2-skip-cache" checked> Saltar pre-caché si ya existe
+              </label>
+
+              <div style="margin-top:6px;">
+                <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:4px;">
+                  <span>Blocks to Swap (CPU offload):</span>
+                  <span id="krea2-blocks-val">0 (Desactivado)</span>
+                </div>
+                <input type="range" id="krea2-blocks-swap" min="0" max="20" value="0" style="width:100%;" oninput="document.getElementById('krea2-blocks-val').innerText = this.value == 0 ? '0 (Desactivado)' : this.value + ' bloques'">
+                <div style="font-size:10px;color:var(--muted);margin-top:2px;">Usa 8–15 bloques si entrenas en GPUs de 16–24GB VRAM sin OOM.</div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Action buttons -->
+          <div class="row" style="margin-bottom:14px;align-items:center;">
+            <button class="btn primary" id="krea2-start-btn" onclick="krea2Start()">⚡ Iniciar Entrenamiento Krea 2</button>
+            <button class="btn danger sm" id="krea2-stop-btn" style="display:none;" onclick="krea2Stop()">Detener Entrenamiento</button>
+            <button class="btn sm" id="krea2-clear-cache-btn" style="margin-left:auto;" onclick="krea2ClearCache()">Limpiar Caché DiT</button>
+          </div>
+          <div id="krea2-run-msg" style="margin-bottom:10px;"></div>
+
+          <!-- Training Live Log Box -->
+          <div id="krea2-log-wrap" style="display:none;margin-top:8px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+              <span style="font-size:12px;font-weight:600;color:var(--text);">Terminal de Entrenamiento (Streaming en Vivo):</span>
+              <span class="spin" id="krea2-train-spin" style="display:none;"></span>
+            </div>
+            <div class="log-box" id="krea2-log" style="height:360px;">(esperando salida...)</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
     <!-- ─── CAPTIONS ───────────────────────────────────────────── -->
     <div class="section" id="sec-captions">
       <div class="card">
@@ -794,14 +982,46 @@ document.querySelectorAll('.nav-item').forEach(el => {
     if (sec === 'installed') loadInstalled();
     if (sec === 'logs')      loadLog();
     if (sec === 'configs')   loadConfigs();
+    if (sec === 'krea2')     loadKrea2();
   });
 });
 
-// ── RunPod URL helper ─────────────────────────────────────────────
+// ── URL helper multi-plataforma ───────────────────────────────────
+// PLATFORM se rellena al arrancar la app con los datos de /api/platform.
+let PLATFORM = { name: 'generic', proxy_template: null };
+
+const PLATFORM_LABELS = {
+  runpod:  'RunPod',
+  vastai:  'vast.ai',
+  generic: '',
+};
+
+async function initPlatform() {
+  try {
+    PLATFORM = await (await fetch('/api/platform')).json();
+    const label = PLATFORM_LABELS[PLATFORM.name] || '';
+    const el = document.getElementById('platform-label');
+    if (el) el.textContent = label ? `${label} Control Panel` : 'Control Panel';
+  } catch (_) { /* fallback a generic */ }
+}
+
 function getServiceUrl(port) {
   const h = window.location.hostname;
-  const m = h.match(/^(.+)-\d+\.proxy\.runpod\.net$/);
-  return m ? `https://${m[1]}-${port}.proxy.runpod.net` : `http://localhost:${port}`;
+  const proto = window.location.protocol;
+
+  // ── RunPod: proxy centralizado <pod_id>-<port>.proxy.runpod.net ──
+  // Prioridad 1: usar pod_id del backend (más fiable).
+  // Prioridad 2: detectar por hostname en caso de que initPlatform falle.
+  if (PLATFORM.name === 'runpod' && PLATFORM.pod_id) {
+    return `https://${PLATFORM.pod_id}-${port}.proxy.runpod.net`;
+  }
+  const mRunpod = h.match(/^(.+)-\d+\.proxy\.runpod\.net$/);
+  if (mRunpod) return `https://${mRunpod[1]}-${port}.proxy.runpod.net`;
+
+  // ── vast.ai y genérico: acceso directo por IP/hostname ───────────
+  // vast.ai expone los puertos mapeados directamente en el host.
+  // No hay proxy centralizado; el usuario accede por <IP>:<puerto>.
+  return `${proto}//${h}:${port}`;
 }
 
 function openPort(port) {
@@ -1251,13 +1471,23 @@ async function deleteModel(category, filename, btn) {
 }
 
 // ── Tokens ────────────────────────────────────────────────────────
+const TOKEN_SOURCE_LABELS = {
+  env:  { text: 'Variable de entorno', css: 'ok' },
+  file: { text: 'Guardado en disco',   css: 'ok' },
+  '':   { text: 'No configurado',      css: 'bad' },
+};
+
 function renderTokenStatus() {
   const t = STATUS.tokens || {};
-  const row = (key, label) => `
-    <div class="token-row">
-      <span class="token-label">${label}</span>
-      <span class="token-status ${t[key] ? 'ok' : 'bad'}">${t[key] ? 'Detectado (RunPod Secret)' : 'No configurado'}</span>
-    </div>`;
+  const row = (key, label) => {
+    const src   = t[key] || '';
+    const { text, css } = TOKEN_SOURCE_LABELS[src] || TOKEN_SOURCE_LABELS[''];
+    return `
+      <div class="token-row">
+        <span class="token-label">${label}</span>
+        <span class="token-status ${css}">${text}</span>
+      </div>`;
+  };
   document.getElementById('tok-status-section').innerHTML =
     row('HF_TOKEN', 'HF_TOKEN') + row('CIVITAI_TOKEN', 'CIVITAI_TOKEN');
 }
@@ -1265,12 +1495,16 @@ function renderTokenStatus() {
 async function saveTokens() {
   const hf  = document.getElementById('tok-hf-input').value.trim();
   const civ = document.getElementById('tok-civ-input').value.trim();
+  // Enviamos siempre ambas claves — string vacío = no cambia el valor existente
   const r = await post('/api/tokens', { HF_TOKEN: hf, CIVITAI_TOKEN: civ });
   const el = document.getElementById('tok-save-msg');
   if (r.ok) {
-    el.innerHTML = '<div class="success-msg mt">✓ Tokens guardados en memoria del proceso</div>';
+    el.innerHTML = '<div class="success-msg mt">✓ Tokens guardados en disco — persisten entre reinicios</div>';
     document.getElementById('tok-hf-input').value  = '';
     document.getElementById('tok-civ-input').value = '';
+    // Refrescar estado para que se refleje la nueva fuente
+    const status = await api('/api/status');
+    if (status.tokens) { STATUS.tokens = status.tokens; renderTokenStatus(); }
   } else {
     el.innerHTML = `<div class="error-msg mt">${r.error}</div>`;
   }
@@ -1742,8 +1976,295 @@ async function capStop() {
   if (msgEl) msgEl.innerHTML = '<div class="error-msg mt">Proceso detenido por el usuario</div>';
 }
 
+// ── Krea 2 (Musubi-Tuner) section ────────────────────────────────
+let _krea2InstallTimer = null;
+let _krea2LogTimer     = null;
+let _krea2StatusTimer  = null;
+let _krea2ModelsLoaded = false;
+
+async function krea2CheckVenv() {
+  const statusEl = document.getElementById('krea2-venv-status');
+  if (!statusEl) return;
+  try {
+    const data = await api('/api/train/krea2/venv-status');
+    if (data.installed) {
+      statusEl.innerHTML = '<span class="svc-status running" style="font-size:12px;">Entorno Musubi-Tuner instalado y listo</span>';
+      document.getElementById('krea2-install-area').style.display = 'none';
+      document.getElementById('krea2-form-area').style.display    = '';
+      if (!_krea2ModelsLoaded) {
+        krea2LoadModels();
+      }
+    } else {
+      statusEl.innerHTML = '<div class="error-msg" style="background:var(--yellow-bg);border-color:var(--yellow);color:var(--yellow);">⚠ Musubi-Tuner no instalado aún en este pod</div>';
+      document.getElementById('krea2-install-area').style.display = '';
+      document.getElementById('krea2-form-area').style.display    = 'none';
+    }
+  } catch (e) {
+    statusEl.innerHTML = '<div class="error-msg">Error al verificar Musubi-Tuner</div>';
+  }
+}
+
+async function krea2Install() {
+  const btn     = document.getElementById('krea2-install-btn');
+  const logWrap = document.getElementById('krea2-install-log-wrap');
+  const logEl   = document.getElementById('krea2-install-log');
+  const spin    = document.getElementById('krea2-install-spin');
+  const msgEl   = document.getElementById('krea2-install-msg');
+
+  btn.disabled = true;
+  msgEl.innerHTML = '';
+  logWrap.style.display = '';
+  logEl.textContent = 'Iniciando instalación de musubi-tuner...\n';
+
+  try {
+    await api('/api/train/krea2/install', { method: 'POST' });
+  } catch (e) {
+    msgEl.innerHTML = `<div class="error-msg">${e.message}</div>`;
+    btn.disabled = false;
+    return;
+  }
+
+  if (_krea2InstallTimer) clearInterval(_krea2InstallTimer);
+  _krea2InstallTimer = setInterval(async () => {
+    try {
+      const data = await api('/api/train/krea2/install-log?lines=200');
+      if (data.lines && data.lines.length) {
+        logEl.textContent = data.lines.join('\n');
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+      if (data.done) {
+        clearInterval(_krea2InstallTimer);
+        _krea2InstallTimer = null;
+        spin.style.display = 'none';
+        btn.disabled = false;
+        msgEl.innerHTML = '<div class="ok-msg mt">✓ Instalación completada con éxito</div>';
+        setTimeout(krea2CheckVenv, 1200);
+      } else if (data.error) {
+        clearInterval(_krea2InstallTimer);
+        _krea2InstallTimer = null;
+        spin.style.display = 'none';
+        btn.disabled = false;
+        msgEl.innerHTML = '<div class="error-msg mt">Error durante la instalación. Revisa el log.</div>';
+      }
+    } catch (_) {}
+  }, 2000);
+}
+
+async function krea2LoadModels() {
+  try {
+    const data = await api('/api/train/krea2/models');
+    _krea2ModelsLoaded = true;
+
+    // Checkpoints (DiT)
+    const ditSel = document.getElementById('krea2-dit-select');
+    ditSel.innerHTML = '';
+    if (data.checkpoints.length === 0) {
+      ditSel.innerHTML = '<option value="">(No hay modelos en /models/checkpoints)</option>';
+    } else {
+      data.checkpoints.forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        if (name.toLowerCase().includes('krea') && name.toLowerCase().includes('raw')) {
+          opt.selected = true;
+        }
+        ditSel.appendChild(opt);
+      });
+    }
+
+    // VAEs
+    const vaeSel = document.getElementById('krea2-vae-select');
+    vaeSel.innerHTML = '';
+    const vaeDefault = document.createElement('option');
+    vaeDefault.value = '';
+    vaeDefault.textContent = '(Usar VAE embebido en el checkpoint base)';
+    vaeSel.appendChild(vaeDefault);
+    data.vaes.forEach(name => {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      if (name.toLowerCase().includes('qwen') || name.toLowerCase().includes('vae')) {
+        opt.selected = true;
+      }
+      vaeSel.appendChild(opt);
+    });
+
+    // Text Encoders
+    const teSel = document.getElementById('krea2-te-select');
+    teSel.innerHTML = '';
+    const teDefault = document.createElement('option');
+    teDefault.value = '';
+    teDefault.textContent = '(Usar Text Encoder embebido en el checkpoint base)';
+    teSel.appendChild(teDefault);
+    data.text_encoders.forEach(name => {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      if (name.toLowerCase().includes('qwen') || name.toLowerCase().includes('vl')) {
+        opt.selected = true;
+      }
+      teSel.appendChild(opt);
+    });
+
+    // Info dataset
+    const infoEl = document.getElementById('krea2-dataset-info');
+    if (infoEl) {
+      infoEl.textContent = `${data.image_count} imágenes detectadas en ${data.default_image_dir}`;
+    }
+    const imgDirInput = document.getElementById('krea2-img-dir');
+    if (imgDirInput && !imgDirInput.value) {
+      imgDirInput.value = data.default_image_dir;
+    }
+  } catch (e) {
+    console.error('Error cargando modelos para Krea 2:', e);
+  }
+}
+
+async function krea2Start() {
+  const startBtn  = document.getElementById('krea2-start-btn');
+  const stopBtn   = document.getElementById('krea2-stop-btn');
+  const msgEl     = document.getElementById('krea2-run-msg');
+  const logWrap   = document.getElementById('krea2-log-wrap');
+  const logEl     = document.getElementById('krea2-log');
+  const spin      = document.getElementById('krea2-train-spin');
+  const badgeEl   = document.getElementById('krea2-badge-status');
+
+  const ditName = document.getElementById('krea2-dit-select').value;
+  if (!ditName) {
+    msgEl.innerHTML = '<div class="error-msg">Por favor selecciona un modelo DiT base.</div>';
+    return;
+  }
+
+  const vaeName = document.getElementById('krea2-vae-select').value;
+  const teName  = document.getElementById('krea2-te-select').value;
+  const resoParts = document.getElementById('krea2-reso-select').value.split(',').map(Number);
+
+  const payload = {
+    dit_model: `/workspace/models/checkpoints/${ditName}`,
+    vae_model: vaeName ? `/workspace/models/vae/${vaeName}` : `/workspace/models/checkpoints/${ditName}`,
+    text_encoder_model: teName ? `/workspace/models/text_encoders/${teName}` : `/workspace/models/checkpoints/${ditName}`,
+    image_directory: document.getElementById('krea2-img-dir').value.trim() || '/workspace/training/images',
+    resolution: resoParts,
+    caption_extension: document.getElementById('krea2-caption-ext').value.trim() || '.txt',
+    batch_size: parseInt(document.getElementById('krea2-batch-size').value, 10) || 1,
+    num_repeats: parseInt(document.getElementById('krea2-repeats').value, 10) || 1,
+    output_name: document.getElementById('krea2-output-name').value.trim() || 'krea2_lora_model',
+    network_dim: parseInt(document.getElementById('krea2-rank').value, 10) || 32,
+    network_alpha: parseFloat(document.getElementById('krea2-alpha').value) || 32,
+    learning_rate: document.getElementById('krea2-lr').value.trim() || '1e-4',
+    optimizer_type: document.getElementById('krea2-optimizer').value,
+    lr_scheduler: document.getElementById('krea2-scheduler').value,
+    max_train_epochs: parseInt(document.getElementById('krea2-epochs').value, 10) || 10,
+    gradient_checkpointing: document.getElementById('krea2-grad-ckpt').checked,
+    fp8_base: document.getElementById('krea2-fp8-base').checked,
+    blocks_to_swap: parseInt(document.getElementById('krea2-blocks-swap').value, 10) || 0,
+    skip_existing_cache: document.getElementById('krea2-skip-cache').checked,
+  };
+
+  msgEl.innerHTML = '';
+  startBtn.disabled = true;
+  stopBtn.style.display = '';
+  logWrap.style.display = '';
+  spin.style.display = '';
+  logEl.textContent = 'Iniciando pipeline de Krea 2 (Caché Latentes -> Caché Texto -> Train)...\n';
+
+  try {
+    await api('/api/train/krea2/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    badgeEl.textContent = 'En Ejecución';
+    badgeEl.className = 'badge active';
+    krea2StartMonitoring();
+  } catch (e) {
+    msgEl.innerHTML = `<div class="error-msg">${e.message}</div>`;
+    startBtn.disabled = false;
+    stopBtn.style.display = 'none';
+    spin.style.display = 'none';
+  }
+}
+
+function krea2StartMonitoring() {
+  if (_krea2LogTimer) clearInterval(_krea2LogTimer);
+  if (_krea2StatusTimer) clearInterval(_krea2StatusTimer);
+
+  const logEl   = document.getElementById('krea2-log');
+  const spin    = document.getElementById('krea2-train-spin');
+  const startBtn = document.getElementById('krea2-start-btn');
+  const stopBtn  = document.getElementById('krea2-stop-btn');
+  const badgeEl  = document.getElementById('krea2-badge-status');
+
+  _krea2LogTimer = setInterval(async () => {
+    try {
+      const data = await api('/api/train/krea2/log?lines=250');
+      if (data.lines && data.lines.length) {
+        logEl.textContent = data.lines.join('\n');
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+    } catch (_) {}
+  }, 2000);
+
+  _krea2StatusTimer = setInterval(async () => {
+    try {
+      const data = await api('/api/train/krea2/status');
+      if (data.running) {
+        if (data.stage === 'caching_latents') {
+          badgeEl.textContent = '1/3 Caché VAE';
+          badgeEl.className = 'badge';
+        } else if (data.stage === 'caching_text') {
+          badgeEl.textContent = '2/3 Caché Qwen3-VL';
+          badgeEl.className = 'badge';
+        } else if (data.stage === 'training') {
+          badgeEl.textContent = '3/3 Entrenando LoRA';
+          badgeEl.className = 'badge active';
+        } else {
+          badgeEl.textContent = 'En Ejecución';
+          badgeEl.className = 'badge active';
+        }
+      } else {
+        clearInterval(_krea2LogTimer);
+        clearInterval(_krea2StatusTimer);
+        _krea2LogTimer = null;
+        _krea2StatusTimer = null;
+        startBtn.disabled = false;
+        stopBtn.style.display = 'none';
+        spin.style.display = 'none';
+        badgeEl.textContent = 'Completado / Listo';
+        badgeEl.className = 'badge';
+      }
+    } catch (_) {}
+  }, 3000);
+}
+
+async function krea2Stop() {
+  const stopBtn = document.getElementById('krea2-stop-btn');
+  stopBtn.disabled = true;
+  try {
+    await api('/api/train/krea2/stop', { method: 'POST' });
+    document.getElementById('krea2-run-msg').innerHTML = '<div class="error-msg">Entrenamiento detenido por el usuario. VRAM liberada.</div>';
+  } catch (e) {
+    document.getElementById('krea2-run-msg').innerHTML = `<div class="error-msg">${e.message}</div>`;
+  }
+}
+
+async function krea2ClearCache() {
+  if (!confirm('¿Deseas vaciar la caché de latentes y texto de Krea 2 (/workspace/training/cache_krea2)?')) return;
+  try {
+    const res = await api('/api/train/krea2/clear-cache', { method: 'POST' });
+    document.getElementById('krea2-run-msg').innerHTML = `<div class="ok-msg">✓ Caché limpiada (${res.cleared_items} elementos eliminados).</div>`;
+  } catch (e) {
+    document.getElementById('krea2-run-msg').innerHTML = `<div class="error-msg">${e.message}</div>`;
+  }
+}
+
+function loadKrea2() {
+  krea2CheckVenv();
+}
+
 // Check venv on page load
 capCheckVenv();
+krea2CheckVenv();
 
 // Re-check when the captions section is activated via nav
 document.querySelector('[data-sec="captions"]').addEventListener('click', () => {
@@ -1757,15 +2278,19 @@ async function pollWithDl() {
   await _origPoll();
   // Actualizar la sección de descargas si está activa
   const dlSec = document.getElementById('sec-downloads');
-  if (dlSec.classList.contains('active')) await renderDownloads('dl-full-list');
+  if (dlSec && dlSec.classList.contains('active')) await renderDownloads('dl-full-list');
   // Tokens si está activa
   const tokSec = document.getElementById('sec-tokens');
-  if (tokSec.classList.contains('active')) renderTokenStatus();
+  if (tokSec && tokSec.classList.contains('active')) renderTokenStatus();
 }
 
-// Arrancar polling
-poll();
-setInterval(pollWithDl, 3000);
+// Arrancar — detectar plataforma primero, luego polling.
+// .catch() garantiza que el polling arranca aunque initPlatform falle
+// (red lenta, backend aún no listo, etc.) usando el fallback "generic".
+initPlatform().catch(() => {}).then(() => {
+  poll();
+  setInterval(pollWithDl, 3000);
+});
 
 // También renderizar descargas en dashboard
 setInterval(() => {
