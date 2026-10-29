@@ -69,6 +69,10 @@ fi
 # Si los tokens vienen del launcher (env vars, RunPod Secrets, inline export),
 # los guardamos en $WORKSPACE/.studio_tokens para que el panel los cargue
 # automáticamente aunque no estén como variables de entorno en el siguiente inicio.
+HF_TOKEN="${HF_TOKEN:-${RUNPOD_SECRET_HF_TOKEN:-}}"
+CIVITAI_TOKEN="${CIVITAI_TOKEN:-${RUNPOD_SECRET_CIVITAI_TOKEN:-}}"
+export HF_TOKEN CIVITAI_TOKEN
+
 TOKENS_FILE="$WORKSPACE/.studio_tokens"
 if [ -n "${HF_TOKEN:-}" ] || [ -n "${CIVITAI_TOKEN:-}" ]; then
     {

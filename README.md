@@ -187,8 +187,9 @@ Usa `os.setsid()` para crear grupos de proceso. Al parar un servicio envía `SIG
 | POST | `/api/services/<sid>/stop` | Parar servicio |
 | POST | `/api/services/<sid>/restart` | Reiniciar servicio |
 | GET | `/api/services/<sid>/log` | Últimas N líneas del log |
-| GET | `/api/civitai/model?id=<id>` | Info de modelo por ID o URL de CivitAI |
+| GET | `/api/civitai/model?id=<id>` | Info de modelo por ID o URL de CivitAI (civitai.com o civitai.red) |
 | POST | `/api/civitai/download` | Iniciar descarga desde CivitAI |
+| POST | `/api/direct/download` | Descarga directa por URL arbitraria (con token automático) |
 | GET | `/api/hf/model?repo=<repo>` | Listar ficheros descargables de un repo HF |
 | POST | `/api/hf/download` | Iniciar descarga desde HuggingFace |
 | GET | `/api/downloads` | Estado de todas las descargas |
@@ -207,10 +208,13 @@ Usa `os.setsid()` para crear grupos de proceso. Al parar un servicio envía `SIG
 | POST | `/api/train/krea2/clear-cache` | Limpiar caché de latentes y texto en `/workspace/training/cache_krea2` |
 
 ### Descargas
-Las descargas corren en threads en background usando `requests` con streaming por chunks de 2 MB. El progreso se calcula a partir del header `Content-Length`. Los tokens (`HF_TOKEN`, `CIVITAI_TOKEN`) se leen de variables de entorno (RunPod Secrets) y se pasan como headers de autorización.
+Las descargas corren en threads en background usando `requests` con streaming por chunks de 2 MB. El progreso se calcula a partir del header `Content-Length`. Los tokens (`HF_TOKEN`, `CIVITAI_TOKEN`, o variables inyectadas por RunPod como `RUNPOD_SECRET_CIVITAI_TOKEN` y `RUNPOD_SECRET_HF_TOKEN`) se leen y aplican automáticamente.
 
-### CivitAI
-Acepta ID numérico o URL completa. La API `https://civitai.com/api/v1/models/<id>` devuelve el tipo del modelo (`Checkpoint`, `LORA`, `VAE`, etc.) que se mapea automáticamente a la carpeta correcta en `/workspace/models/`. Si el modelo tiene múltiples versiones, el frontend las lista para que el usuario seleccione.
+### CivitAI & civitai.red
+Acepta ID de modelo, ID de versión, o URLs completas (incluyendo `civitai.red` y enlaces directos `/api/download/models/<versionId>?fileId=...`). Consulta la API pública correspondiente (`/models/{id}` o `/model-versions/{id}`) y pre-selecciona automáticamente el archivo objetivo si la URL especifica `fileId`. En la descarga, inyecta el token en la query para prevenir conflictos con cabeceras en redirecciones a Cloudflare R2 / AWS S3.
+
+### Descarga Directa por URL
+Permite pegar cualquier enlace directo a un binario (`.safetensors`, `.gguf`, etc.), seleccionando la carpeta de destino. El nombre de archivo se extrae automáticamente del header `Content-Disposition` del servidor o de la URL.
 
 ### HuggingFace
 Acepta `org/repo` o URL completa. La API `https://huggingface.co/api/models/<repo>` devuelve la lista de ficheros del repositorio. El backend filtra solo extensiones descargables (`.safetensors`, `.ckpt`, `.pt`, `.bin`, `.gguf`, `.pth`).

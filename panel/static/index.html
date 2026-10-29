@@ -513,13 +513,46 @@ btn, .btn {
     <div class="section" id="sec-civitai">
       <div class="card">
         <div class="card-title">Descargar desde CivitAI</div>
-        <p style="color:var(--muted);font-size:12px;margin-bottom:14px;">Busca el modelo en <a href="https://civitai.com" target="_blank" style="color:var(--accent)">civitai.com</a>, copia el ID o la URL y pégalo aquí. El tipo y la carpeta de destino se detectan automáticamente.</p>
+        <p style="color:var(--muted);font-size:12px;margin-bottom:14px;">Busca el modelo en <a href="https://civitai.com" target="_blank" style="color:var(--accent)">civitai.com</a> o <a href="https://civitai.red" target="_blank" style="color:var(--accent)">civitai.red</a>. Acepta ID de modelo, ID de versión o la URL completa de descarga.</p>
 
         <div class="input-row">
-          <input class="input" id="civ-id" placeholder="ID del modelo (ej: 4384) o URL completa de CivitAI" style="flex:1">
+          <input class="input" id="civ-id" placeholder="ID (ej: 4384), URL de modelo o enlace /api/download/models/..." style="flex:1">
           <button class="btn primary" onclick="fetchCivitai()">Buscar</button>
         </div>
         <div id="civ-result"></div>
+      </div>
+
+      <div class="card" style="margin-top:16px;">
+        <div class="card-title">Descarga Directa por URL (Binario / Enlace Directo)</div>
+        <p style="color:var(--muted);font-size:12px;margin-bottom:14px;">
+          Descarga cualquier archivo pasando su enlace directo (ej: enlaces directos de <code>civitai.red</code>, Civitai, Google Drive o cualquier CDN). La autenticación con tu token se inyecta automáticamente sin conflictos.
+        </p>
+        <div class="input-row" style="margin-bottom:10px;">
+          <input class="input" id="direct-url" placeholder="https://civitai.red/api/download/models/3112728?fileId=3015315..." style="flex:1">
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <div style="flex:1;min-width:180px;">
+            <div class="input-label">Carpeta de destino</div>
+            <select class="select" id="direct-cat" style="width:100%">
+              <option value="checkpoints" selected>checkpoints</option>
+              <option value="loras">loras</option>
+              <option value="vae">vae</option>
+              <option value="clip">clip</option>
+              <option value="unet">unet</option>
+              <option value="controlnet">controlnet</option>
+              <option value="upscalers">upscalers</option>
+              <option value="text_encoders">text_encoders</option>
+            </select>
+          </div>
+          <div style="flex:1;min-width:180px;">
+            <div class="input-label">Nombre de archivo (opcional — auto si vacío)</div>
+            <input class="input" id="direct-filename" placeholder="auto">
+          </div>
+          <div style="margin-top:auto;">
+            <button class="btn primary" onclick="downloadDirect()">Descargar URL</button>
+          </div>
+        </div>
+        <div id="direct-result" style="margin-top:10px;"></div>
       </div>
     </div>
 
@@ -1253,6 +1286,33 @@ async function downloadCivitai() {
     showMsg('civ-result', `✓ Descarga iniciada (${SELECTED_VERSION.filename}) — job ${r.job_id}`, 'success');
   } else {
     showMsg('civ-result', r.error || 'Error desconocido', 'error');
+  }
+}
+
+async function downloadDirect() {
+  const url = document.getElementById('direct-url').value.trim();
+  const category = document.getElementById('direct-cat').value;
+  const filename = document.getElementById('direct-filename').value.trim();
+  const resEl = document.getElementById('direct-result');
+
+  if (!url) {
+    resEl.innerHTML = '<div class="error-msg">Por favor ingresa una URL válida.</div>';
+    return;
+  }
+
+  resEl.innerHTML = '<div style="color:var(--muted);font-size:12px;"><span class="spin"></span> Iniciando descarga...</div>';
+
+  try {
+    const r = await post('/api/direct/download', { url, category, filename });
+    if (r.job_id) {
+      resEl.innerHTML = `<div class="ok-msg mt">✓ Descarga iniciada (${r.job_id}) — Puedes ver el progreso en la pestaña <strong>Descargas</strong>.</div>`;
+      document.getElementById('direct-url').value = '';
+      document.getElementById('direct-filename').value = '';
+    } else {
+      resEl.innerHTML = `<div class="error-msg mt">${r.error || 'Error al iniciar la descarga'}</div>`;
+    }
+  } catch (e) {
+    resEl.innerHTML = `<div class="error-msg mt">${e.message}</div>`;
   }
 }
 

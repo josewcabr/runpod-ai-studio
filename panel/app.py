@@ -81,12 +81,20 @@ def _save_tokens_file():
         print(f'[tokens] Error al guardar {TOKENS_FILE}: {e}')
 
 # Inicialización al arrancar el panel:
-# 1. Marcar como 'env' los tokens ya presentes en el entorno
+# 1. Marcar como 'env' los tokens ya presentes en el entorno o inyectados por RunPod Secrets
 for _k in _TOKEN_KEYS:
+    if not os.environ.get(_k) and os.environ.get(f'RUNPOD_SECRET_{_k}'):
+        os.environ[_k] = os.environ[f'RUNPOD_SECRET_{_k}']
     if os.environ.get(_k):
         _token_sources[_k] = 'env'
 # 2. Completar con el archivo para los que falten
 _load_tokens_file()
+
+def _get_civitai_token() -> str:
+    return os.environ.get('CIVITAI_TOKEN') or os.environ.get('RUNPOD_SECRET_CIVITAI_TOKEN') or ''
+
+def _get_hf_token() -> str:
+    return os.environ.get('HF_TOKEN') or os.environ.get('RUNPOD_SECRET_HF_TOKEN') or ''
 
 # ── Definición de servicios ───────────────────────────────────────
 # group 'exclusive' → solo uno puede estar activo en :7860
@@ -402,6 +410,22 @@ def _download_worker(job_id: str, url: str, dest: Path, headers: dict):
         r = requests.get(url, stream=True, headers=headers, timeout=60, allow_redirects=True)
         r.raise_for_status()
 
+        # Resolver nombre de archivo automáticamente si es genérico
+        if dest.name in ('auto', 'model.safetensors', ''):
+            cd = r.headers.get('content-disposition', '')
+            fn_match = re.search(r'filename\*?=(?:UTF-8\'\')?["\']?([^"\';\r\n]+)', cd)
+            if fn_match:
+                extracted = Path(fn_match.group(1).strip()).name
+                if extracted:
+                    dest = dest.parent / extracted
+                    DOWNLOADS[job_id]['filename'] = extracted
+            elif dest.name in ('auto', ''):
+                url_clean = r.url.split('?')[0]
+                url_name = Path(url_clean).name
+                if url_name and '.' in url_name:
+                    dest = dest.parent / url_name
+                    DOWNLOADS[job_id]['filename'] = url_name
+
         total = int(r.headers.get('content-length', 0))
         DOWNLOADS[job_id]['total']     = total
         DOWNLOADS[job_id]['total_str'] = _human(total) if total else '?'
@@ -585,16 +609,78 @@ def api_civitai_model():
     if not raw:
         return jsonify({'error': 'Parámetro id requerido'}), 400
 
-    # Aceptar URL completa o solo el ID numérico
+    token = _get_civitai_token()
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    if token:
+        headers['Authorization'] = f'Bearer {token}'
+
+    # 1. Detectar si es una URL con modelVersionId, /download/models/, o /model-versions/
+    ver_match = re.search(r'(?:modelVersionId=|/download/models/|/model-versions/)(\d+)', raw)
+    file_id_match = re.search(r'fileId=(\d+)', raw)
+    target_file_id = int(file_id_match.group(1)) if file_id_match else None
+
+    if ver_match:
+        ver_id = ver_match.group(1)
+        try:
+            r = req.get(f'https://civitai.com/api/v1/model-versions/{ver_id}', headers=headers, timeout=15)
+            r.raise_for_status()
+            data = r.json()
+
+            model_info = data.get('model', {})
+            model_type = model_info.get('type', 'Checkpoint')
+            category = CATEGORY_MAP.get(model_type, 'checkpoints')
+
+            files = data.get('files', [])
+            if target_file_id:
+                files.sort(key=lambda x: 0 if x.get('id') == target_file_id else 1)
+
+            versions = []
+            for f in files:
+                fname = f.get('name', 'model.safetensors')
+                size_kb = f.get('sizeKB', 0)
+                dl_url = data.get('downloadUrl', f'https://civitai.com/api/download/models/{ver_id}')
+                if f.get('id'):
+                    dl_url = f'https://civitai.com/api/download/models/{ver_id}?fileId={f["id"]}'
+                versions.append({
+                    'id': data['id'],
+                    'name': f"{data.get('name', '')} — {fname}",
+                    'baseModel': data.get('baseModel', ''),
+                    'downloadUrl': dl_url,
+                    'filename': fname,
+                    'size_str': _human(int(size_kb * 1024)),
+                })
+
+            if not versions:
+                dl_url = data.get('downloadUrl', f'https://civitai.com/api/download/models/{ver_id}')
+                versions.append({
+                    'id': data['id'],
+                    'name': data.get('name', 'v1.0'),
+                    'baseModel': data.get('baseModel', ''),
+                    'downloadUrl': dl_url,
+                    'filename': 'model.safetensors',
+                    'size_str': '?',
+                })
+
+            return jsonify({
+                'id': data.get('modelId', data['id']),
+                'name': f"{model_info.get('name', 'Modelo')} [{data.get('name', '')}]",
+                'type': model_type,
+                'category': category,
+                'nsfw': model_info.get('nsfw', False),
+                'versions': versions,
+            })
+        except req.exceptions.HTTPError as e:
+            if e.response.status_code == 401:
+                return jsonify({'error': 'Token inválido o modelo restringido (necesitas CIVITAI_TOKEN)'}), 401
+            pass
+        except Exception:
+            pass
+
+    # 2. Aceptar URL de modelo clásica o ID numérico
     m = re.search(r'/models/(\d+)', raw)
     model_id = m.group(1) if m else re.sub(r'\D', '', raw)
     if not model_id:
-        return jsonify({'error': 'ID de modelo inválido'}), 400
-
-    headers = {}
-    token = os.environ.get('CIVITAI_TOKEN', '')
-    if token:
-        headers['Authorization'] = f'Bearer {token}'
+        return jsonify({'error': 'ID o URL de modelo inválido'}), 400
 
     try:
         r = req.get(
@@ -635,28 +721,114 @@ def api_civitai_model():
         if code == 401:
             return jsonify({'error': 'Token inválido o modelo restringido (necesitas CIVITAI_TOKEN)'}), 401
         if code == 404:
-            return jsonify({'error': f'Modelo {model_id} no encontrado en CivitAI'}), 404
+            # Fallback: intentar consultar como model-versions antes de fallar
+            try:
+                r2 = req.get(f'https://civitai.com/api/v1/model-versions/{model_id}', headers=headers, timeout=15)
+                r2.raise_for_status()
+                data2 = r2.json()
+                model_info2 = data2.get('model', {})
+                model_type2 = model_info2.get('type', 'Checkpoint')
+                category2 = CATEGORY_MAP.get(model_type2, 'checkpoints')
+                versions2 = []
+                for f in data2.get('files', []):
+                    fname = f.get('name', 'model.safetensors')
+                    size_kb = f.get('sizeKB', 0)
+                    dl_url = data2.get('downloadUrl', f'https://civitai.com/api/download/models/{data2["id"]}')
+                    if f.get('id'):
+                        dl_url = f'https://civitai.com/api/download/models/{data2["id"]}?fileId={f["id"]}'
+                    versions2.append({
+                        'id': data2['id'],
+                        'name': f"{data2.get('name', '')} — {fname}",
+                        'baseModel': data2.get('baseModel', ''),
+                        'downloadUrl': dl_url,
+                        'filename': fname,
+                        'size_str': _human(int(size_kb * 1024)),
+                    })
+                return jsonify({
+                    'id': data2.get('modelId', data2['id']),
+                    'name': f"{model_info2.get('name', 'Modelo')} [{data2.get('name', '')}]",
+                    'type': model_type2,
+                    'category': category2,
+                    'nsfw': model_info2.get('nsfw', False),
+                    'versions': versions2,
+                })
+            except Exception:
+                pass
+            return jsonify({'error': f'Modelo o versión {model_id} no encontrado en CivitAI'}), 404
         return jsonify({'error': f'Error HTTP {code}'}), code
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+
 @app.route('/api/civitai/download', methods=['POST'])
 def api_civitai_download():
     data = request.json or {}
-    url      = data.get('downloadUrl', '')
-    filename = data.get('filename', 'model.safetensors')
+    url      = data.get('downloadUrl', '').strip()
+    filename = data.get('filename', 'model.safetensors').strip() or 'model.safetensors'
     category = data.get('category', 'checkpoints')
 
     if not url:
         return jsonify({'error': 'downloadUrl requerido'}), 400
 
-    headers = {}
-    token = os.environ.get('CIVITAI_TOKEN', '')
-    if token:
+    token = _get_civitai_token()
+    headers = {'User-Agent': 'Mozilla/5.0'}
+
+    # Si es CivitAI (civitai.com o civitai.red) y tenemos token, adjuntarlo a la URL si no está presente
+    # para que en el redirect a Cloudflare R2 / S3 no haya conflicto con el header Authorization
+    if token and ('civitai.com' in url or 'civitai.red' in url):
+        if 'token=' not in url:
+            sep = '&' if '?' in url else '?'
+            url = f"{url}{sep}token={token}"
+    elif token:
         headers['Authorization'] = f'Bearer {token}'
 
     job_id = _new_job('civitai', filename, category)
     dest   = MODELS_DIR / category / filename
+
+    threading.Thread(
+        target=_download_worker,
+        args=(job_id, url, dest, headers),
+        daemon=True,
+    ).start()
+    return jsonify({'job_id': job_id})
+
+
+# ── Descarga Directa por URL (Binarios arbitrarios) ───────────────
+@app.route('/api/direct/download', methods=['POST'])
+def api_direct_download():
+    data = request.json or {}
+    url = data.get('url', '').strip()
+    category = data.get('category', 'checkpoints').strip()
+    filename = data.get('filename', '').strip() or 'auto'
+
+    if not url:
+        return jsonify({'error': 'URL requerida'}), 400
+
+    if category not in VALID_CATEGORIES:
+        category = 'checkpoints'
+
+    headers = {'User-Agent': 'Mozilla/5.0'}
+
+    civ_token = _get_civitai_token()
+    hf_token = _get_hf_token()
+
+    if ('civitai.com' in url or 'civitai.red' in url):
+        if civ_token and 'token=' not in url:
+            sep = '&' if '?' in url else '?'
+            url = f"{url}{sep}token={civ_token}"
+    elif 'huggingface.co' in url and hf_token:
+        headers['Authorization'] = f'Bearer {hf_token}'
+
+    initial_name = filename if filename != 'auto' else 'model.safetensors'
+    dest = MODELS_DIR / category / initial_name
+    job_id = _new_job('direct_url', initial_name, category)
+
+    threading.Thread(
+        target=_download_worker,
+        args=(job_id, url, dest, headers),
+        daemon=True,
+    ).start()
+    return jsonify({'job_id': job_id})
 
     threading.Thread(
         target=_download_worker,
