@@ -281,16 +281,13 @@ if ! is_done "$WORKSPACE/ComfyUI" || [ ! -d "$WORKSPACE/ComfyUI/venv" ]; then
     source venv/bin/activate
     pip install --upgrade pip wheel -q
 
-    # ── Constraints PRIMERO: protege torch y comfy-kitchen ────────────────
+    # ── Constraints PRIMERO: protege torch de ser sobreescrito ────────────
     # Sin esto, pip install -r requirements.txt reemplaza torch+cu121 con un
     # torch CPU-only desde PyPI → CUDA not available → crash en model_management.
-    # comfy-kitchen==0.2.26: versiones >=0.2.28 usan PEP-585 list[int] en custom_ops
-    # que rompen infer_schema en PyTorch < 2.7.0.
     cat > /tmp/comfy_constraints.txt <<'EOF'
 torch==2.5.1+cu121
 torchvision==0.20.1+cu121
 torchaudio==2.5.1+cu121
-comfy-kitchen==0.2.26
 EOF
 
     # ── Stack PyTorch cu121 para ComfyUI ──────────────────────────────────
@@ -315,6 +312,18 @@ EOF
     pip install -q \
         -r /tmp/comfy_requirements_filtered.txt \
         -c /tmp/comfy_constraints.txt
+
+    # ── Fix PEP-585 bug en comfy_kitchen para PyTorch < 2.7 ───────────
+    python3 -c "
+import re, glob
+for path in glob.glob('$WORKSPACE/ComfyUI/venv/lib/python*/site-packages/comfy_kitchen/**/*.py', recursive=True):
+    with open(path, 'r', encoding='utf-8') as f: code = f.read()
+    if 'list[int]' in code or 'list[bool]' in code:
+        code = re.sub(r'\blist\[int\]', 'typing.List[int]', code)
+        code = re.sub(r'\blist\[bool\]', 'typing.List[bool]', code)
+        if 'import typing' not in code: code = 'import typing\n' + code
+        with open(path, 'w', encoding='utf-8') as f: f.write(code)
+" 2>/dev/null || true
 
     # Custom nodes
     cd custom_nodes || { log "FATAL: No se puede acceder a ComfyUI/custom_nodes"; exit 1; }
