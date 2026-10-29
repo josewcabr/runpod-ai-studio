@@ -797,6 +797,8 @@ btn, .btn {
               
               <div class="input-label">Text Encoder (Qwen3-VL 4B)</div>
               <select class="input" id="krea2-te-select" style="margin-bottom:0;"></select>
+
+              <div id="krea2-missing-models-alert" style="display:none;margin-top:12px;padding:10px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:var(--r);font-size:12px;"></div>
             </div>
 
             <!-- Bloque 2: Dataset -->
@@ -2135,36 +2137,65 @@ async function krea2LoadModels() {
     // VAEs
     const vaeSel = document.getElementById('krea2-vae-select');
     vaeSel.innerHTML = '';
-    const vaeDefault = document.createElement('option');
-    vaeDefault.value = '';
-    vaeDefault.textContent = '(Usar VAE embebido en el checkpoint base)';
-    vaeSel.appendChild(vaeDefault);
-    data.vaes.forEach(name => {
-      const opt = document.createElement('option');
-      opt.value = name;
-      opt.textContent = name;
-      if (name.toLowerCase().includes('qwen') || name.toLowerCase().includes('vae')) {
-        opt.selected = true;
-      }
-      vaeSel.appendChild(opt);
-    });
+    if (data.vaes.length === 0) {
+      vaeSel.innerHTML = '<option value="">⚠️ Falta VAE (qwen_image_vae.safetensors)</option>';
+    } else {
+      data.vaes.forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        if (name.toLowerCase().includes('qwen') || name.toLowerCase().includes('vae')) {
+          opt.selected = true;
+        }
+        vaeSel.appendChild(opt);
+      });
+    }
 
     // Text Encoders
     const teSel = document.getElementById('krea2-te-select');
     teSel.innerHTML = '';
-    const teDefault = document.createElement('option');
-    teDefault.value = '';
-    teDefault.textContent = '(Usar Text Encoder embebido en el checkpoint base)';
-    teSel.appendChild(teDefault);
-    data.text_encoders.forEach(name => {
-      const opt = document.createElement('option');
-      opt.value = name;
-      opt.textContent = name;
-      if (name.toLowerCase().includes('qwen') || name.toLowerCase().includes('vl')) {
-        opt.selected = true;
+    if (data.text_encoders.length === 0) {
+      teSel.innerHTML = '<option value="">⚠️ Falta Text Encoder (qwen3vl_4b_bf16.safetensors)</option>';
+    } else {
+      data.text_encoders.forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        if (name.toLowerCase().includes('qwen') || name.toLowerCase().includes('vl')) {
+          opt.selected = true;
+        }
+        teSel.appendChild(opt);
+      });
+    }
+
+    // Missing models alert & 1-click download helpers
+    const missingAlert = document.getElementById('krea2-missing-models-alert');
+    if (missingAlert) {
+      let alerts = [];
+      if (data.vaes.length === 0) {
+        alerts.push(`
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">
+            <span>⚠️ <strong>Falta VAE</strong> (requerido para el paso 1 de latentes).</span>
+            <button class="btn sm" onclick="krea2DownloadMissingModel('vae')">⬇ Descargar VAE (~500 MB)</button>
+          </div>
+        `);
       }
-      teSel.appendChild(opt);
-    });
+      if (data.text_encoders.length === 0) {
+        alerts.push(`
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+            <span>⚠️ <strong>Falta Text Encoder Qwen3-VL</strong> (requerido para paso 2 de texto).</span>
+            <button class="btn sm" onclick="krea2DownloadMissingModel('te')">⬇ Descargar TE (~8.5 GB)</button>
+          </div>
+        `);
+      }
+      if (alerts.length > 0) {
+        missingAlert.innerHTML = alerts.join('');
+        missingAlert.style.display = 'block';
+      } else {
+        missingAlert.style.display = 'none';
+        missingAlert.innerHTML = '';
+      }
+    }
 
     // Info dataset
     const infoEl = document.getElementById('krea2-dataset-info');
@@ -2177,6 +2208,35 @@ async function krea2LoadModels() {
     }
   } catch (e) {
     console.error('Error cargando modelos para Krea 2:', e);
+  }
+}
+
+async function krea2DownloadMissingModel(type) {
+  let url = '', cat = '', filename = '';
+  if (type === 'vae') {
+    url = 'https://huggingface.co/Comfy-Org/Krea-2/resolve/main/vae/qwen_image_vae.safetensors';
+    cat = 'vae';
+    filename = 'qwen_image_vae.safetensors';
+  } else if (type === 'te') {
+    url = 'https://huggingface.co/Comfy-Org/Krea-2/resolve/main/text_encoders/qwen3vl_4b_bf16.safetensors';
+    cat = 'text_encoders';
+    filename = 'qwen3vl_4b_bf16.safetensors';
+  }
+  try {
+    await api('/api/direct/download', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, category: cat, filename })
+    });
+    alert(`Descarga de ${filename} iniciada. Puedes seguir el progreso en la pestaña 'Descargas' del panel.`);
+    let attempts = 0;
+    const interval = setInterval(async () => {
+      attempts++;
+      await krea2LoadModels();
+      if (attempts > 12) clearInterval(interval);
+    }, 10000);
+  } catch (e) {
+    alert(`Error iniciando descarga: ${e.message}`);
   }
 }
 
@@ -2196,13 +2256,23 @@ async function krea2Start() {
   }
 
   const vaeName = document.getElementById('krea2-vae-select').value;
+  if (!vaeName) {
+    msgEl.innerHTML = '<div class="error-msg">Falta el VAE. Krea 2 requiere <b>qwen_image_vae.safetensors</b> en /workspace/models/vae/.</div>';
+    return;
+  }
+
   const teName  = document.getElementById('krea2-te-select').value;
+  if (!teName) {
+    msgEl.innerHTML = '<div class="error-msg">Falta el Text Encoder. Krea 2 requiere <b>qwen3vl_4b_bf16.safetensors</b> en /workspace/models/text_encoders/.</div>';
+    return;
+  }
+
   const resoParts = document.getElementById('krea2-reso-select').value.split(',').map(Number);
 
   const payload = {
     dit_model: `/workspace/models/checkpoints/${ditName}`,
-    vae_model: vaeName ? `/workspace/models/vae/${vaeName}` : `/workspace/models/checkpoints/${ditName}`,
-    text_encoder_model: teName ? `/workspace/models/text_encoders/${teName}` : `/workspace/models/checkpoints/${ditName}`,
+    vae_model: `/workspace/models/vae/${vaeName}`,
+    text_encoder_model: `/workspace/models/text_encoders/${teName}`,
     image_directory: document.getElementById('krea2-img-dir').value.trim() || '/workspace/training/images',
     resolution: resoParts,
     caption_extension: document.getElementById('krea2-caption-ext').value.trim() || '.txt',

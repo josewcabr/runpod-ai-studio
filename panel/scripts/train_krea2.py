@@ -157,26 +157,32 @@ def main():
 
     # Validar VAE
     vae_model = Path(config.get("vae_model", ""))
-    if not vae_model.exists():
+    if not vae_model.exists() or vae_model.resolve() == dit_model.resolve():
         candidates = list((workspace / "models" / "vae").glob("*qwen*image*vae*.safetensors")) + \
                      list((workspace / "models" / "vae").glob("*vae*.safetensors"))
         if candidates:
             vae_model = candidates[0]
             log(f"Auto-detectado VAE: {vae_model}")
         else:
-            # Fallback opcional si el modelo DiT contiene VAE o está en checkpoints
-            vae_model = dit_model
+            log("✗ ERROR CRÍTICO: No se encontró el modelo VAE (qwen_image_vae.safetensors).")
+            log("  En Krea 2, los checkpoints DiT (como lustify...safetensors) NO contienen el VAE.")
+            log("  Descarga el archivo 'qwen_image_vae.safetensors' en /workspace/models/vae/ antes de continuar.")
+            sys.exit(1)
 
     # Validar Text Encoder (Qwen3-VL)
     te_model = Path(config.get("text_encoder_model", ""))
-    if not te_model.exists():
+    if not te_model.exists() or te_model.resolve() == dit_model.resolve():
         candidates = list((workspace / "models" / "text_encoders").glob("*qwen*3*vl*.safetensors")) + \
+                     list((workspace / "models" / "text_encoders").glob("*.safetensors")) + \
                      list((workspace / "models" / "clip").glob("*qwen*.safetensors"))
         if candidates:
             te_model = candidates[0]
             log(f"Auto-detectado Text Encoder: {te_model}")
         else:
-            te_model = dit_model
+            log("✗ ERROR CRÍTICO: No se encontró el Text Encoder (qwen3vl_4b_bf16.safetensors).")
+            log("  En Krea 2, los checkpoints DiT NO contienen el Text Encoder Qwen3-VL.")
+            log("  Descarga 'qwen3vl_4b_bf16.safetensors' en /workspace/models/text_encoders/ antes de continuar.")
+            sys.exit(1)
 
     # Dataset e imágenes
     img_dir = Path(config.get("image_directory", workspace / "training" / "images"))
