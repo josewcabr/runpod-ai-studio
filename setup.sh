@@ -261,8 +261,15 @@ fi
 section "ComfyUI"
 cd "$WORKSPACE" || { log "FATAL: No se puede acceder a $WORKSPACE"; exit 1; }
 
+COMFY_VERSION="v0.3.14"
+
 if [ ! -d "ComfyUI" ]; then
-    git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git
+    git clone --depth 1 --branch "$COMFY_VERSION" https://github.com/comfyanonymous/ComfyUI.git
+else
+    cd ComfyUI
+    git fetch --tags 2>/dev/null || true
+    git checkout "$COMFY_VERSION" 2>/dev/null || true
+    cd ..
 fi
 
 if ! is_done "$WORKSPACE/ComfyUI" || [ ! -d "$WORKSPACE/ComfyUI/venv" ]; then
@@ -306,16 +313,30 @@ EOF
         -r /tmp/comfy_requirements_filtered.txt \
         -c /tmp/comfy_constraints.txt
 
-    # ComfyUI Manager
+    # Custom nodes
     cd custom_nodes || { log "FATAL: No se puede acceder a ComfyUI/custom_nodes"; exit 1; }
-    git clone --depth 1 https://github.com/ltdrdata/ComfyUI-Manager.git 2>/dev/null || \
-        log "⚠  ComfyUI-Manager no se pudo clonar, continuando sin él"
+
+    # ComfyUI Manager
+    if [ ! -d "ComfyUI-Manager" ]; then
+        git clone --depth 1 https://github.com/ltdrdata/ComfyUI-Manager.git 2>/dev/null || \
+            log "⚠  ComfyUI-Manager no se pudo clonar, continuando sin él"
+    fi
     [ -f ComfyUI-Manager/requirements.txt ] && \
         pip install -q -r ComfyUI-Manager/requirements.txt -c /tmp/comfy_constraints.txt
+
+    # ComfyUI-GGUF (necesario para Krea 2 Turbo GGUF)
+    if [ ! -d "ComfyUI-GGUF" ]; then
+        git clone --depth 1 https://github.com/city96/ComfyUI-GGUF.git 2>/dev/null || \
+            log "⚠  ComfyUI-GGUF no se pudo clonar, continuando sin él"
+    fi
+    [ -f ComfyUI-GGUF/requirements.txt ] && \
+        pip install -q -r ComfyUI-GGUF/requirements.txt -c /tmp/comfy_constraints.txt
+
     deactivate
+    cd ../..
 
     mark_done "$WORKSPACE/ComfyUI"
-    log "✅ ComfyUI + Manager instalados"
+    log "✅ ComfyUI ($COMFY_VERSION) + Manager + GGUF instalados"
 else
     log "⏭  Ya instalado"
 fi
