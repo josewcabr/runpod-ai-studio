@@ -281,13 +281,16 @@ if ! is_done "$WORKSPACE/ComfyUI" || [ ! -d "$WORKSPACE/ComfyUI/venv" ]; then
     source venv/bin/activate
     pip install --upgrade pip wheel -q
 
-    # ── Constraints PRIMERO: protege torch de ser sobreescrito ────────────
+    # ── Constraints PRIMERO: protege torch y comfy-kitchen ────────────────
     # Sin esto, pip install -r requirements.txt reemplaza torch+cu121 con un
     # torch CPU-only desde PyPI → CUDA not available → crash en model_management.
+    # comfy-kitchen==0.2.26: versiones >=0.2.28 usan PEP-585 list[int] en custom_ops
+    # que rompen infer_schema en PyTorch < 2.7.0.
     cat > /tmp/comfy_constraints.txt <<'EOF'
 torch==2.5.1+cu121
 torchvision==0.20.1+cu121
 torchaudio==2.5.1+cu121
+comfy-kitchen==0.2.26
 EOF
 
     # ── Stack PyTorch cu121 para ComfyUI ──────────────────────────────────
