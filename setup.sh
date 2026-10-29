@@ -431,11 +431,12 @@ for dst in "${!COMFY_MAP[@]}"; do
     ln -sfn "$MODELS_DIR/${COMFY_MAP[$dst]}" "$COMFY_M/$dst"
 done
 
-# extra_model_paths.yaml: ComfyUI busca loras también en training/output/loras.
-# Los .safetensors de Kohya aparecen en ComfyUI automáticamente al terminar el training.
+# extra_model_paths.yaml: ComfyUI busca loras también en training/output/loras,
+# y permite a UNETLoader leer modelos DiT descargados en /models/checkpoints/.
 cat > "$WORKSPACE/ComfyUI/extra_model_paths.yaml" <<EOF
 comfyui:
     loras: $WORKSPACE/training/output/loras/
+    diffusion_models: $MODELS_DIR/checkpoints/
 EOF
 
 # Forge (solo si ya está instalado — se instala desde el panel)
