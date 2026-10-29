@@ -1,0 +1,191 @@
+{
+  "last_node_id": 10,
+  "last_link_id": 11,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "UNETLoader",
+      "pos": [40, 60],
+      "size": [330, 82],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "outputs": [
+        {"name": "MODEL", "type": "MODEL", "links": [1], "shape": 3, "slot_index": 0}
+      ],
+      "properties": {"Node name for S&R": "UNETLoader"},
+      "widgets_values": ["lustifyNSFWCheckpoint_v10Krea2_3015315.safetensors", "default"]
+    },
+    {
+      "id": 2,
+      "type": "CLIPLoader",
+      "pos": [40, 180],
+      "size": [330, 82],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "outputs": [
+        {"name": "CLIP", "type": "CLIP", "links": [2], "shape": 3, "slot_index": 0}
+      ],
+      "properties": {"Node name for S&R": "CLIPLoader"},
+      "widgets_values": ["qwen3vl_4b_bf16.safetensors", "lumina2"]
+    },
+    {
+      "id": 3,
+      "type": "VAELoader",
+      "pos": [40, 300],
+      "size": [330, 58],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "outputs": [
+        {"name": "VAE", "type": "VAE", "links": [10], "shape": 3, "slot_index": 0}
+      ],
+      "properties": {"Node name for S&R": "VAELoader"},
+      "widgets_values": ["qwen_image_vae.safetensors"]
+    },
+    {
+      "id": 4,
+      "type": "LoraLoader",
+      "pos": [420, 100],
+      "size": [320, 126],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {"name": "model", "type": "MODEL", "link": 1},
+        {"name": "clip", "type": "CLIP", "link": 2}
+      ],
+      "outputs": [
+        {"name": "MODEL", "type": "MODEL", "links": [3], "shape": 3, "slot_index": 0},
+        {"name": "CLIP", "type": "CLIP", "links": [4, 5], "shape": 3, "slot_index": 1}
+      ],
+      "properties": {"Node name for S&R": "LoraLoader"},
+      "widgets_values": ["krea2_a_lora.safetensors", 1.0, 1.0]
+    },
+    {
+      "id": 5,
+      "type": "CLIPTextEncode",
+      "pos": [780, 60],
+      "size": [400, 160],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {"name": "clip", "type": "CLIP", "link": 4}
+      ],
+      "outputs": [
+        {"name": "CONDITIONING", "type": "CONDITIONING", "links": [6], "shape": 3, "slot_index": 0}
+      ],
+      "properties": {"Node name for S&R": "CLIPTextEncode"},
+      "widgets_values": ["a photo of a person, masterpiece, highly detailed, realistic, 8k uhd"]
+    },
+    {
+      "id": 6,
+      "type": "CLIPTextEncode",
+      "pos": [780, 260],
+      "size": [400, 140],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {"name": "clip", "type": "CLIP", "link": 5}
+      ],
+      "outputs": [
+        {"name": "CONDITIONING", "type": "CONDITIONING", "links": [7], "shape": 3, "slot_index": 0}
+      ],
+      "properties": {"Node name for S&R": "CLIPTextEncode"},
+      "widgets_values": ["blurry, low quality, distorted, deformed, oversaturated"]
+    },
+    {
+      "id": 7,
+      "type": "EmptySD3LatentImage",
+      "pos": [780, 440],
+      "size": [315, 106],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "outputs": [
+        {"name": "LATENT", "type": "LATENT", "links": [8], "shape": 3, "slot_index": 0}
+      ],
+      "properties": {"Node name for S&R": "EmptySD3LatentImage"},
+      "widgets_values": [1024, 1024, 1]
+    },
+    {
+      "id": 8,
+      "type": "KSampler",
+      "pos": [1220, 120],
+      "size": [315, 262],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {"name": "model", "type": "MODEL", "link": 3},
+        {"name": "positive", "type": "CONDITIONING", "link": 6},
+        {"name": "negative", "type": "CONDITIONING", "link": 7},
+        {"name": "latent_image", "type": "LATENT", "link": 8}
+      ],
+      "outputs": [
+        {"name": "LATENT", "type": "LATENT", "links": [9], "shape": 3, "slot_index": 0}
+      ],
+      "properties": {"Node name for S&R": "KSampler"},
+      "widgets_values": [
+        42424242,
+        "randomize",
+        25,
+        4.0,
+        "euler",
+        "simple",
+        1.0
+      ]
+    },
+    {
+      "id": 9,
+      "type": "VAEDecode",
+      "pos": [1580, 160],
+      "size": [210, 46],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {"name": "samples", "type": "LATENT", "link": 9},
+        {"name": "vae", "type": "VAE", "link": 10}
+      ],
+      "outputs": [
+        {"name": "IMAGE", "type": "IMAGE", "links": [11], "shape": 3, "slot_index": 0}
+      ],
+      "properties": {"Node name for S&R": "VAEDecode"}
+    },
+    {
+      "id": 10,
+      "type": "SaveImage",
+      "pos": [1840, 120],
+      "size": [450, 500],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {"name": "images", "type": "IMAGE", "link": 11}
+      ],
+      "properties": {"Node name for S&R": "SaveImage"},
+      "widgets_values": ["Krea2_Output"]
+    }
+  ],
+  "links": [
+    [1, 1, 0, 4, 0, "MODEL"],
+    [2, 2, 0, 4, 1, "CLIP"],
+    [3, 4, 0, 8, 0, "MODEL"],
+    [4, 4, 1, 5, 0, "CLIP"],
+    [5, 4, 1, 6, 0, "CLIP"],
+    [6, 5, 0, 8, 1, "CONDITIONING"],
+    [7, 6, 0, 8, 2, "CONDITIONING"],
+    [8, 7, 0, 8, 3, "LATENT"],
+    [9, 8, 0, 9, 0, "LATENT"],
+    [10, 3, 0, 9, 1, "VAE"],
+    [11, 9, 0, 10, 0, "IMAGE"]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {},
+  "version": 0.4
+}
